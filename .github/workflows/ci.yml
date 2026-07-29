@@ -1,40 +1,34 @@
-name: ci
+name: repository-policy
 
 on:
   push:
   pull_request:
 
 jobs:
-  test:
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+  documentation:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.25.x"
-      - name: Install Linux frontend dependencies
-        if: runner.os == 'Linux'
+      - name: Require ecosystem documents
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libc6-dev libgl1-mesa-dev libxcursor-dev libxi-dev \
-            libxinerama-dev libxrandr-dev libxxf86vm-dev \
-            libasound2-dev pkg-config xvfb
-      - name: Test
-        if: runner.os != 'Linux'
-        run: go test ./...
-      - name: Test under Xvfb
-        if: runner.os == 'Linux'
-        run: xvfb-run -a go test ./...
-      - name: Vet
-        run: go vet ./...
+          test -f README.md
+          test -f CODEX.md
+          test -f docs/repositories.md
+          test -f docs/architecture.md
+          test -f docs/integration.md
+          test -f docs/platforms.md
+          test -f docs/roadmap.md
+          test -f docs/frontend.md
+          test -f docs/compatibility.md
+      - name: Prevent implementation duplication
+        run: |
+          if find cmd internal -type f -print 2>/dev/null | grep .; then
+            echo "Core/frontend implementation belongs in sibling repositories."
+            exit 1
+          fi
       - name: Reject proprietary inputs
-        shell: bash
         run: |
-          if git ls-files | grep -E '\.(bin|dat|wbin|wbt|fnt|rom|img|mbn|i64|idb)$'; then
-            echo "Proprietary or reverse-engineering input is tracked."
+          if git ls-files | grep -E '\.(bin|dat|wbin|wbt|fnt|rom|img|mbn|i64|idb|apk|aar)$'; then
+            echo "Proprietary or generated binary input is tracked."
             exit 1
           fi

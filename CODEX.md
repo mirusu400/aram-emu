@@ -1,105 +1,98 @@
 # Codex project guide
 
+## Repository role
+
+`aram-emu` is the ARAM ecosystem, integration, packaging, and release
+repository. It must not grow duplicate copies of core or frontend code.
+
+Sibling ownership:
+
+- `aram-core`: headless emulation, loaders, profiles, state, debugger backend;
+- `aram-frontend`: cross-platform presentation, host input, settings, and
+  emulator workflows;
+- `anycall_magichole`: reverse-engineering evidence and executable reference;
+- `aram-emu`: adapters between the public contracts, product configuration,
+  platform hosts, packaging, release manifests, and project-wide plans.
+
+Every repository has its own `CODEX.md`. Read that file before changing a
+sibling repository.
+
 ## Mission
 
-ARAM is a general-purpose Korean feature-phone emulator, not a
-`MinigameQVGAOEM` launcher and not a KTF-only compatibility shim. It must grow
-through explicit WIPI, carrier, manufacturer, device, and title profiles while
-keeping the core reusable.
+ARAM is a general-purpose Korean feature-phone emulator. It is not a
+`MinigameQVGAOEM` launcher and not a KTF-only compatibility shim. Compatibility
+must grow through explicit WIPI version, carrier, manufacturer, device, and
+title profiles.
 
-The sibling `anycall_magichole` repository is the evidence and reference-oracle
-project. ARAM is the clean Go product implementation.
+The two product modes are:
 
-## Product modes
+- application mode: ARM/Thumb WIPI applications with WIPI/OEM HLE;
+- system mode: user-supplied firmware with CPU, memory, interrupt, timer,
+  storage, display, keypad, and device models.
 
-- **Application mode:** load WIPI packages and run native applications quickly
-  with ARM/Thumb execution plus WIPI/OEM HLE.
-- **System mode:** boot user-supplied original firmware with low-level CPU,
-  memory, interrupt, timer, storage, display, keypad, and device models.
+Share stable infrastructure between the modes, but do not force both through
+one machine implementation.
 
-Do not force both modes through one implementation. They should share frontend,
-input, audio, state, debugger, patch, and profile infrastructure.
+## Dependency direction
 
-## Frontend requirements
+The final application or native host may import `aram-frontend` and
+`aram-core`. The frontend must not import concrete core internals. An adapter
+owned by integration translates `frontend.Backend` operations to an exported
+core machine contract.
 
-The desktop frontend is a product surface, not a temporary test harness. Keep a
-conventional emulator workflow comparable to mature console emulators:
+```text
+desktop/mobile host -> aram-frontend <- integration adapter -> aram-core
+                                                        |
+                                             app or system backend
+```
 
-- persistent top menus for File, Emulation, View, Tools, and Help;
-- Open File and Open Firmware Directory directly from the File menu;
-- recent files, drag-and-drop, command-line file association, and reopen;
-- start, pause, resume, stop, reset, frame advance, fast-forward, and speed
-  control;
-- save/load state slots, named states, screenshots, recording, rewind, and
-  deterministic input replay;
-- integer scaling, aspect-ratio control, fullscreen, rotation, filters, and
-  screen-layout presets;
-- keyboard and gamepad mapping, controller hotplug, vibration, and per-game
-  input profiles;
-- volume, mute, audio latency, and device selection;
-- cheat manager, memory search, patch manager, debugger, logs, compatibility
-  report, and title properties;
-- clear empty, loading, running, paused, stopped, and fault states;
-- no title should bypass the ordinary File/Open workflow.
+Avoid circular dependencies. Cross-repository contracts are versioned. A
+breaking contract change requires coordinated commits, migration notes, and a
+pinned integration revision.
 
-Features may initially be disabled while the backend is absent, but their
-commands and architecture must not be removed to simplify a single-game demo.
-See `docs/frontend.md` for the menu contract.
+## Cross-platform rules
 
-## Architecture rules
+- Windows, Linux, macOS, and Android are required product targets.
+- iOS stays inside the design boundary and becomes required after an iOS host
+  is added.
+- Default core packages remain pure Go and headless.
+- Native/JIT CPU implementations are optional backends behind build tags.
+- A portable interpreter is the compatibility fallback on mobile and hosts
+  where executable memory or native libraries are unavailable.
+- Desktop-specific dialogs never enter mobile builds.
+- Android/iOS hosts own document pickers, permissions, lifecycle, packaging,
+  and signing; the shared frontend accepts document handles or cache paths.
 
-- `internal/core` owns the backend-neutral machine contract.
-- `internal/cpu` owns replaceable CPU backends. Unicorn is an initial backend,
-  not a permanent dependency of every package.
-- `internal/loader` parses untrusted inputs with strict bounds checks.
-- WIPI-standard behavior, OEM behavior, carrier behavior, device quirks, and
-  title patches remain separate.
-- Frontend packages issue commands; they do not emulate APIs or mutate guest
-  memory directly.
-- Time, randomness, storage, and input must be virtualizable for deterministic
-  replay and save states.
-- Avoid per-instruction host callbacks outside debugger/trace modes.
-- Game-specific patches are hash-keyed data with expected-original-byte checks,
-  not anonymous hard-coded addresses in the core.
+## Product requirements
 
-## Source and data policy
+Do not remove a generic emulator command to simplify a single-title demo.
+File/open, recent files, firmware selection, pause/reset/stop, states, rewind,
+speed controls, scaling, screenshots, controller mapping, audio, cheats,
+patches, debugger, logs, and compatibility reporting remain part of the
+product contract. Unsupported operations remain visible and disabled.
 
-- Do not commit firmware, ROMs, memory dumps, games, fonts extracted from
-  devices, IDA databases, or proprietary audio/image assets.
-- Test with synthetic fixtures in the public tree.
-- Private integration tests may read user-owned data through
-  `ARAM_TEST_DATA` or locate the evidence repository through
-  `ARAM_REFERENCE_REPO`.
-- Do not silently download firmware or keys.
-- Never modify a user-supplied source image in place.
+## Evidence and data policy
 
-## Compatibility policy
+- Never commit firmware, ROMs, games, keys, dumps, IDA databases, extracted
+  fonts, or proprietary media.
+- Use synthetic unit fixtures.
+- Private integration tests may locate the evidence checkout through
+  `ARAM_REFERENCE_REPO` or user-owned data through `ARAM_TEST_DATA`.
+- Never modify a user-supplied image in place.
+- Do not silently download firmware, games, or keys.
+- A title-specific result never proves carrier-wide or WIPI-wide support.
 
-Every compatibility claim must name:
+## Release discipline
 
-1. input hash;
-2. loader/container type;
-3. carrier/device profile;
-4. backend and ARAM commit;
-5. reproducible input sequence;
-6. observed result or failure.
+A release candidate requires:
 
-A title-specific success is not platform-wide support. KTF evidence does not
-automatically prove SKT or LGT behavior.
+1. pinned core and frontend revisions;
+2. clean CI on required desktop targets and Android;
+3. third-party dependency and license review;
+4. reproducible compatibility records with hashes and profiles;
+5. save-state schema and backend identifiers when states are enabled;
+6. crash-safe handling of malformed and unsupported input;
+7. no proprietary material in source, artifacts, or test fixtures.
 
-## Go and test conventions
-
-- Keep packages small and dependency direction explicit.
-- Return typed errors with offsets for malformed binary data.
-- Use table-driven tests and fuzz parsers that accept external bytes.
-- `go test ./...` and `go vet ./...` must pass before commit.
-- Format Go code with `gofmt`.
-- Add regression coverage before fixing a compatibility crash.
-- Keep GUI-free packages testable on headless CI.
-
-## Licensing checkpoint
-
-Do not add a repository license or ship linked emulator binaries until the
-Unicorn, frontend, audio, and optional full-system backend licenses have been
-reviewed as a combined distribution. Record third-party versions and licenses
-in a checked-in dependency manifest before the first release.
+Do not add a repository license or ship a linked emulator release until the
+combined dependency and distribution licensing review is recorded.

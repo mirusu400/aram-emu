@@ -1,22 +1,45 @@
-# Compatibility records
+# Compatibility evidence
 
-ARAM compatibility is tracked per file hash and profile, not by anecdotal
-platform-wide labels.
+ARAM compatibility is tracked per input hash, runtime/profile selection, and
+component revision. Anecdotal platform-wide labels are not accepted.
 
-Each record will contain:
+Each record contains at least:
 
 ```yaml
-title: Example
+title: Synthetic example
 sha256: 0000000000000000000000000000000000000000000000000000000000000000
 format: eads
-profile: samsung/skt/example
-backend: unicorn
+mode: application
+wipi: "2.x"
+carrier: ktf
+manufacturer: samsung
+device: example
+core_revision: 0000000
+frontend_revision: 0000000
+integration_revision: 0000000
+cpu_backend: interpreter
 result: boots
-aram_commit: 0000000
-input_replay: traces/example.json
-notes: Synthetic example only
+input_replay: traces/synthetic-example.json
+notes: No proprietary data
 ```
 
-Supported result levels are `recognized`, `loads`, `boots`, `menu`,
-`playable`, and `complete`. A higher level requires reproducible evidence for
-all lower levels.
+Result levels are:
+
+1. `recognized`
+2. `loads`
+3. `boots`
+4. `menu`
+5. `playable`
+6. `complete`
+
+A higher level requires reproducible evidence for all lower levels. Records
+also distinguish crashes, hangs, graphical defects, audio defects, input
+defects, performance issues, and unimplemented APIs.
+
+Firmware milestones use a separate vocabulary such as `snapshot-entry`,
+`amss-entry`, `ui-visible`, and `cold-boot`. Application-mode success must not
+be reported as full firmware support.
+
+Compatibility data never includes the game, firmware, keys, extracted assets,
+or private user paths. Public distribution of reports waits for a privacy and
+licensing review.

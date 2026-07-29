@@ -1,83 +1,42 @@
-# Desktop frontend contract
+# Frontend product contract
 
-ARAM keeps familiar desktop-emulator controls even while individual backends
-are incomplete.
+The implementation lives in
+[`aram-frontend`](https://github.com/mirusu400/aram-frontend). This document is
+the product-level acceptance contract used by integration and releases.
 
-## File
+## Persistent workflows
 
-- Open File... (`Ctrl+O`)
-- Open Firmware Directory...
-- Recent Files
-- Close Title
-- Exit
+- File: open package, open firmware, recent entries, close, associations,
+  drag-and-drop, command-line input, and mobile document intents.
+- Emulation: start, pause/resume, stop, reset, frame advance, fast-forward,
+  speed control, states, state slots, and rewind.
+- View: fullscreen, integer scaling, aspect, fit, rotation, layouts, filters,
+  and screenshots.
+- Input/audio: keyboard, gamepad, touch, per-title profiles, hotplug, volume,
+  mute, latency, and output-device selection.
+- Tools: cheats, memory search, patches, debugger, trace, logs, title
+  properties, and compatibility reporting.
+- Help: documentation, issue reporting, build information, and about.
 
-Opening a file performs type detection first, selects or requests a compatible
-profile, and then creates a machine. Drag-and-drop and command-line paths use
-the same code path. Recent entries that no longer exist remain removable but
-must not crash the UI.
+Unavailable operations stay visible and disabled with an explanation. No title
+may bypass the ordinary open pipeline through a hidden hard-coded launcher.
 
-## Emulation
+## Observable states
 
-- Start (`F5`)
-- Pause/Resume (`F6`)
-- Stop (`F8`)
-- Reset (`Ctrl+R`)
-- Frame Advance
-- Fast Forward
-- Load State / Save State
-- State Slot
-- Rewind
+The product distinguishes empty, selecting, inspecting, loading, ready,
+running, paused, stopped, backend-unavailable, guest-faulted, malformed-input,
+and unsupported-profile states.
 
-Unavailable operations remain visible and disabled rather than disappearing.
+An actionable error includes the selected input identity, detected format,
+profile decision, backend, and reason. Errors do not collapse into a blank
+screen.
 
-## View
+## Presentation invariants
 
-- Fullscreen (`F11`)
-- Integer Scaling
-- Preserve Aspect Ratio
-- Fit Window
-- Rotation
-- Screen Layout
-- Filter
-- Screenshot
-
-The emulator framebuffer is logically separate from window chrome. Scaling and
-filters never alter guest pixels or screenshot-at-native-resolution output.
-
-## Tools
-
-- Cheat Manager
-- Memory Search
-- Patch Manager
-- Debugger
-- Controller Settings
-- Audio Settings
-- Title Properties
-- Compatibility Report
-- Logs
-
-Tool windows communicate through debugger/state interfaces. They do not reach
-into a specific CPU backend with unchecked casts.
-
-## Help
-
-- Documentation
-- Report Issue
-- About ARAM
-
-## States
-
-The frontend visibly distinguishes:
-
-- no input loaded;
-- inspecting;
-- ready;
-- running;
-- paused;
-- stopped;
-- backend unavailable;
-- guest fault;
-- malformed or unsupported input.
-
-Errors include the selected path, detected format, profile, and an actionable
-reason. They must not be reduced to a blank screen.
+- Guest framebuffer pixels are distinct from window chrome.
+- Scaling and filters do not mutate guest-native screenshots.
+- Frontend code does not read or write guest memory directly.
+- Desktop and mobile layouts may differ while command IDs and capabilities
+  remain consistent.
+- Settings and recent items fail safely when paths or permissions expire.
+- Mobile UI never assumes an Android content URI is a filesystem path.
