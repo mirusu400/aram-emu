@@ -1,0 +1,49 @@
+# Build products
+/bin/
+/build/
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local emulator configuration
+/.aram/
+/screenshots/
+/states/
+/logs/
+
+# User-supplied and proprietary material
+/roms/
+/firmware/
+/dumps/
+/games/
+/reference/
+*.bin
+*.dat
+*.wbin
+*.wbt
+*.fnt
+*.rom
+*.img
+*.mbn
+*.i64
+*.idb
+
+# Extracted media
+*.mmf
+*.smaf
+*.wav
+*.mid
+*.midi
