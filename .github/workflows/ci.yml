@@ -20,15 +20,19 @@ jobs:
           test -f docs/roadmap.md
           test -f docs/frontend.md
           test -f docs/compatibility.md
-      - name: Prevent implementation duplication
+          test -f cmd/aram-probe/main.go
+      - name: Require integration ownership
         run: |
-          if find cmd internal -type f -print 2>/dev/null | grep .; then
-            echo "Core/frontend implementation belongs in sibling repositories."
+          test -f go.mod
+          test -f cmd/aram/main.go
+          test -f integration/backend.go
+          if find internal/core internal/frontend -type f -print 2>/dev/null | grep .; then
+            echo "Core/frontend implementation must stay in sibling repositories."
             exit 1
           fi
       - name: Reject proprietary inputs
         run: |
-          if git ls-files | grep -E '\.(bin|dat|wbin|wbt|fnt|rom|img|mbn|i64|idb|apk|aar)$'; then
+          if git ls-files | grep -E '\.(bin|dat|wbin|wbt|fnt|rom|img|mbn|i64|idb|apk|aar|jar|jad|zip|mmf|smaf|wav|mid|midi)$'; then
             echo "Proprietary or generated binary input is tracked."
             exit 1
           fi

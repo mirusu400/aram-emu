@@ -10,6 +10,8 @@ Sibling ownership:
 - `aram-core`: headless emulation, loaders, profiles, state, debugger backend;
 - `aram-frontend`: cross-platform presentation, host input, settings, and
   emulator workflows;
+- `aram-test`: black-box corpus orchestration, compatibility history, and
+  failure triage;
 - `anycall_magichole`: reverse-engineering evidence and executable reference;
 - `aram-emu`: adapters between the public contracts, product configuration,
   platform hosts, packaging, release manifests, and project-wide plans.
@@ -81,6 +83,8 @@ product contract. Unsupported operations remain visible and disabled.
 - Never modify a user-supplied image in place.
 - Do not silently download firmware, games, or keys.
 - A title-specific result never proves carrier-wide or WIPI-wide support.
+- Bulk corpus runners, result caches, compatibility deltas, and scheduled
+  compatibility testing belong to `aram-test`, not this product repository.
 
 ## Release discipline
 

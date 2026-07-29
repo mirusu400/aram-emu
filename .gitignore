@@ -9,6 +9,8 @@
 *.test
 *.out
 coverage.*
+__pycache__/
+*.py[cod]
 
 # Editors and operating systems
 .idea/
@@ -40,6 +42,11 @@ Thumbs.db
 *.mbn
 *.i64
 *.idb
+*.apk
+*.aar
+*.jar
+*.jad
+*.zip
 
 # Extracted media
 *.mmf

@@ -43,3 +43,16 @@ be reported as full firmware support.
 Compatibility data never includes the game, firmware, keys, extracted assets,
 or private user paths. Public distribution of reports waits for a privacy and
 licensing review.
+
+## Automated suite
+
+The sibling `aram-test` repository owns the automated compatibility suite.
+It follows the ordinary integration adapter and core application machine
+through this repository's headless `cmd/aram-probe` executable, without
+maintaining a second loader or emulator implementation.
+
+`ARAM_TEST_DATA` and `ARAM_REFERENCE_REPO` opt private inputs into a local
+`aram-test` run without copying or modifying them. That repository owns
+generated fixtures, per-input caches, reports, cross-revision deltas, failure
+clustering, and scheduled synthetic CI. Private corpora remain excluded from
+hosted CI.

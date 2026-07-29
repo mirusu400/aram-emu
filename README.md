@@ -14,11 +14,12 @@ The core and frontend are intentionally separate:
 | [`aram-core`](https://github.com/mirusu400/aram-core) | Headless loaders, profiles, machine contracts, CPU and WIPI runtime | Go library |
 | [`aram-frontend`](https://github.com/mirusu400/aram-frontend) | Shared emulator UI plus desktop/mobile host boundaries | Desktop app and mobile library |
 | [`aram-emu`](https://github.com/mirusu400/aram-emu) | Architecture, roadmap, integration adapter, packaging, releases | ARAM product |
+| `aram-test` | Synthetic and authorized commercial-corpus orchestration, reports, deltas, and triage | Compatibility laboratory |
 | [`anycall_magichole`](https://github.com/mirusu400/anycall_magichole) | Magic Hole reverse-engineering evidence and reference implementation | Research oracle |
 
-Duplicated bootstrap code was removed from this repository after the split.
-Product integration will import the two sibling modules instead of copying
-their implementation.
+Product integration imports the two sibling modules instead of copying their
+implementation. A local Go workspace connects sibling checkouts while their
+contracts are still changing.
 
 ## Product modes
 
@@ -46,10 +47,34 @@ Current foundation status:
 - `aram-core` tests natively and cross-compiles for Android/arm64;
 - `aram-frontend` tests on desktop, builds a Windows executable, and binds to
   an Android AAR;
+- `aram-emu` now owns the adapter and desktop product entry point that connect
+  the frontend's ordinary open request to the core application factory;
+- synthetic EADS and the authorized Magic Hole reference both reach and
+  execute their mapped native entry points; the profiled reference completes
+  bootstrap, setup, start, preload, and its first visible frame deterministically;
+- the independent `aram-test` repository consumes the headless product probe
+  for synthetic gates and authorized commercial-corpus loop engineering;
 - conventional File, Emulation, View, Tools, and Help commands remain in the
   frontend even when the backend does not implement them yet;
-- native guest execution, broad WIPI API coverage, save states, cheats, and
+- broad native instruction and WIPI/OEM service coverage, multi-title
+  first-frame compatibility, production-grade state workflows, cheats, and
   firmware boot remain roadmap work, not completed compatibility claims.
+
+Run the integrated desktop product from this checkout:
+
+```powershell
+go run ./cmd/aram
+go run ./cmd/aram path\to\authorized-input.dat
+```
+
+Build or invoke the black-box compatibility probe:
+
+```powershell
+go run ./cmd/aram-probe -input path\to\authorized-input.dat
+```
+
+Corpus discovery, caching, comparison, and reports belong to the sibling
+`aram-test` repository rather than the product tree.
 
 ## Project documents
 

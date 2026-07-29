@@ -16,6 +16,10 @@ ARAM separates product presentation, integration, and emulation:
               ARM + WIPI HLE        ARM + device models
                        \               /
                       versioned profiles
+
+ authorized private corpus -> aram-test -> aram-probe -> integration adapter
+                                  |
+                         report / delta / triage
 ```
 
 ## Component boundaries
@@ -39,6 +43,13 @@ to import both sibling code modules.
 The core owns loaders, memory maps, machine lifecycle, CPU execution, WIPI/OEM
 services, device models, deterministic state, debugging, patches, and profiles.
 It has no window, display-server, Android Activity, or UIKit dependency.
+
+### Compatibility laboratory
+
+`aram-test` treats `aram-probe` as a black-box product boundary. It owns
+synthetic gates, user-authorized commercial corpus discovery, per-input
+caches, cross-revision deltas, and failure clustering. It does not import or
+duplicate core, frontend, or integration implementation.
 
 ## Application mode
 

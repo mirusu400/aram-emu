@@ -31,6 +31,21 @@ Every source entry point converges on the same request:
 
 Android content URIs are not assumed to be normal filesystem paths.
 
+## Implemented application milestone
+
+The application adapter now implements this pipeline for filesystem-backed
+desktop inputs. It reports inspecting/loading progress, hashes the source,
+lets core resolve the layered compatibility profile, creates the portable
+application machine, maps EADS text/BSS/stack, and exposes the resulting core
+state and frame to the frontend. Synthetic and private authorized-reference
+tests use the same `frontend.OpenRequest` and adapter path.
+
+The portable ARM/Thumb interpreter, public WIPI trampoline boundary, and
+profiled EADS service runtime now execute the known reference lifecycle
+through bootstrap, setup, start, preload, and a deterministic first visible
+frame. This is a hash-keyed title-profile milestone, not a claim of generic
+WIPI or multi-title compatibility.
+
 ## Command mapping
 
 | Frontend operation | Core/integration responsibility |

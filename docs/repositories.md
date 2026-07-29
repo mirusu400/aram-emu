@@ -12,9 +12,10 @@ headless core.
 | `aram-core` | Machine and CPU contracts, safe loaders, profiles, WIPI/OEM runtime, state and debugger services | Windows, Android, or Ebitengine UI code |
 | `aram-frontend` | Shared Ebitengine screens, commands, settings, keyboard/gamepad/touch UI, platform host bridges | WIPI parsing, guest execution, device internals |
 | `aram-emu` | Integration adapter, release manifests, platform packaging, project roadmap and acceptance gates | Copies of sibling implementation |
+| `aram-test` | Black-box probe orchestration, authorized corpus runs, compatibility deltas, history, and failure triage | Emulator implementation or proprietary inputs |
 | `anycall_magichole` | Reverse-engineering notes, scripts, traces, recovered structures, executable reference | Clean-room product implementation claims |
 
-All four repositories are private. Their Git histories remain independent.
+All five repositories are private. Their Git histories remain independent.
 
 ## Planned repositories
 
@@ -22,8 +23,9 @@ These are roadmap boundaries, not repositories to create prematurely:
 
 - `aram-specs`: machine-readable WIPI, carrier, OEM, device, and ABI
   descriptions after the schema is stable enough to have independent users;
-- `aram-compatibility`: public or separately distributable hash-keyed test
-  results after the reporting schema and privacy review are complete;
+- `aram-compatibility`: public or separately distributable compatibility
+  results extracted from private `aram-test` reports after the reporting
+  schema and privacy review are complete;
 - `aram-wipi-sdk`: clean development headers, stubs, examples, and tooling
   after enough WIPI behavior is understood to support third-party programs.
 

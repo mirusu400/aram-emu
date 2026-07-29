@@ -6,7 +6,7 @@ only when its exit gate is reproducible; a visual demo is not sufficient.
 | Phase | Status | Exit gate |
 |---|---|---|
 | 0. Repository foundation | done | Core/frontend/integration/evidence ownership split; private repos, project guides, CI |
-| 1. Application-mode execution | active | One authorized native WIPI title reaches its first frame through ordinary File/Open |
+| 1. Application-mode execution | done | One authorized native WIPI title reaches its first frame through ordinary File/Open |
 | 2. WIPI runtime breadth | planned | Versioned API matrix, graphics/input/audio/storage/timer coverage, conformance fixtures |
 | 3. Carrier and device profiles | planned | KTF, SKT, and LGT evidence separated; Samsung and other OEM quirks profile-driven |
 | 4. Emulator product features | planned | States, replay, speed controls, controllers, screenshots, cheats, patches, debugger |
@@ -99,11 +99,34 @@ device profile, start state, trace, visible result, and known missing hardware.
 
 ## Immediate next queue
 
-1. Add a portable ARM/Thumb interpreter skeleton and instruction tests to
+Completed foundation milestones:
+
+1. Portable ARM/Thumb interpreter skeleton and instruction tests in
    `aram-core`.
-2. Formalize source/profile selection and structured core errors.
-3. Add the integration adapter and local workspace in `aram-emu`.
-4. Drive the known Magic Hole package to its first mapped entry point.
-5. Implement framebuffer/event/timer WIPI calls needed for the first frame.
-6. Create the Android native-host repository only when the adapter can launch a
-   title, avoiding a disconnected empty shell.
+2. Bounded source/container inspection, layered profile data, and structured
+   frontend failures.
+3. Integration adapter, local workspace, and desktop product entry point in
+   `aram-emu`.
+4. Synthetic and authorized Magic Hole inputs mapped through the ordinary open
+   path; the entry dispatcher executes and returns reproducibly.
+5. Independent `aram-test` compatibility laboratory with synthetic gates,
+   authorized commercial-corpus loops, privacy-safe reports, deltas, triage,
+   and scheduled CI.
+6. Hash-keyed reference profile dispatch through bootstrap, setup, start,
+   preload, and a deterministic first visible frame.
+
+Next:
+
+1. Pin and continuously test coordinated core, frontend, and integration
+   revisions in private CI.
+2. Attach an authorized multi-title corpus to `aram-test` and define
+   hash-keyed minimum expectations without committing any input.
+3. Generalize the hash-keyed reference runtime into typed WIPI, carrier, OEM,
+   device, and title services; replace opaque success fallbacks with evidenced
+   behavior or explicit unsupported results.
+4. Add framebuffer evidence and deterministic input replay beyond the first
+   visible frame.
+5. Expand the portable interpreter from the observed subset according to
+   corpus faults, with an instruction regression test for every added encoding.
+6. Create the Android native-host repository only when the adapter can launch
+   multiple profiled titles, avoiding a disconnected empty shell.
