@@ -22,9 +22,13 @@ jobs:
           sudo apt-get install -y \
             libc6-dev libgl1-mesa-dev libxcursor-dev libxi-dev \
             libxinerama-dev libxrandr-dev libxxf86vm-dev \
-            libasound2-dev pkg-config
+            libasound2-dev pkg-config xvfb
       - name: Test
+        if: runner.os != 'Linux'
         run: go test ./...
+      - name: Test under Xvfb
+        if: runner.os == 'Linux'
+        run: xvfb-run -a go test ./...
       - name: Vet
         run: go vet ./...
       - name: Reject proprietary inputs
