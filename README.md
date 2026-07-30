@@ -2,11 +2,13 @@
 
 **ARAM - Archived Runtime for ARM Mobiles**
 
+[![build](https://github.com/mirusu400/aram-emu/actions/workflows/build.yml/badge.svg)](https://github.com/mirusu400/aram-emu/actions/workflows/build.yml)
+
 ARAM is a cross-platform emulator project for Korean feature-phone software.
 It targets both fast application-level WIPI emulation and, as a longer-term
 research track, booting user-supplied original device firmware.
 
-This repository is the private ecosystem, integration, and release repository.
+This repository is the product integration and release repository.
 The core and frontend are intentionally separate:
 
 | Repository | Responsibility | Primary output |
@@ -74,6 +76,17 @@ go run ./cmd/aram-probe -input path\to\authorized-input.dat
 
 Corpus discovery, caching, comparison, and reports belong to the sibling
 `aram-test` repository rather than the product tree.
+
+## Continuous builds
+
+Every push and pull request runs the desktop tests and builds ARAM on Windows
+x64, Linux x64, and macOS arm64. Download the compressed `aram-*` build from
+the workflow run's **Artifacts** section. CI artifacts are retained for 14
+days and are development snapshots rather than versioned releases.
+
+The product workflow checks out the public `aram-core` and `aram-frontend`
+repositories next to this repository so the local `go.work` and `replace`
+directives resolve exactly as they do in a developer checkout.
 
 ## Project documents
 

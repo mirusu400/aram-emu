@@ -1,0 +1,128 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-latest
+            platform: windows-amd64
+            executable: aram.exe
+            probe: aram-probe.exe
+            archive: aram-windows-amd64.zip
+          - name: Linux x64
+            runner: ubuntu-latest
+            platform: linux-amd64
+            executable: aram
+            probe: aram-probe
+            archive: aram-linux-amd64.tar.gz
+          - name: macOS arm64
+            runner: macos-latest
+            platform: macos-arm64
+            executable: aram
+            probe: aram-probe
+            archive: aram-macos-arm64.tar.gz
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Check out product
+        uses: actions/checkout@v4
+        with:
+          path: aram-emu
+          persist-credentials: false
+
+      - name: Check out core
+        uses: actions/checkout@v4
+        with:
+          repository: mirusu400/aram-core
+          path: aram-core
+          persist-credentials: false
+
+      - name: Check out frontend
+        uses: actions/checkout@v4
+        with:
+          repository: mirusu400/aram-frontend
+          path: aram-frontend
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: aram-emu/go.mod
+          cache-dependency-path: |
+            aram-emu/go.sum
+            aram-emu/go.work.sum
+            aram-core/go.sum
+            aram-frontend/go.sum
+
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libc6-dev libgl1-mesa-dev libxcursor-dev libxi-dev \
+            libxinerama-dev libxrandr-dev libxxf86vm-dev \
+            libasound2-dev pkg-config xvfb
+
+      - name: Test
+        if: runner.os != 'Linux'
+        working-directory: aram-emu
+        run: go test ./...
+
+      - name: Test under Xvfb
+        if: runner.os == 'Linux'
+        working-directory: aram-emu
+        run: xvfb-run -a go test ./...
+
+      - name: Vet
+        working-directory: aram-emu
+        run: go vet ./...
+
+      - name: Build product and probe
+        working-directory: aram-emu
+        shell: bash
+        run: |
+          mkdir -p build/package dist
+          go build -trimpath -ldflags="-s -w" \
+            -o "build/package/${{ matrix.executable }}" ./cmd/aram
+          go build -trimpath -ldflags="-s -w" \
+            -o "build/package/${{ matrix.probe }}" ./cmd/aram-probe
+          cp README.md build/package/
+
+      - name: Package Windows build
+        if: runner.os == 'Windows'
+        working-directory: aram-emu
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path 'build/package/*' `
+            -DestinationPath 'dist/${{ matrix.archive }}'
+
+      - name: Package Unix build
+        if: runner.os != 'Windows'
+        working-directory: aram-emu
+        shell: bash
+        run: tar -C build/package -czf "dist/${{ matrix.archive }}" .
+
+      - name: Upload desktop build
+        uses: actions/upload-artifact@v4
+        with:
+          name: aram-${{ matrix.platform }}
+          path: aram-emu/dist/${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 14
