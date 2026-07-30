@@ -15,7 +15,6 @@ The core and frontend are intentionally separate:
 | [`aram-frontend`](https://github.com/mirusu400/aram-frontend) | Shared emulator UI plus desktop/mobile host boundaries | Desktop app and mobile library |
 | [`aram-emu`](https://github.com/mirusu400/aram-emu) | Architecture, roadmap, integration adapter, packaging, releases | ARAM product |
 | `aram-test` | Synthetic and authorized commercial-corpus orchestration, reports, deltas, and triage | Compatibility laboratory |
-| [`anycall_magichole`](https://github.com/mirusu400/anycall_magichole) | Magic Hole reverse-engineering evidence and reference implementation | Research oracle |
 
 Product integration imports the two sibling modules instead of copying their
 implementation. A local Go workspace connects sibling checkouts while their
