@@ -100,3 +100,30 @@ A release candidate requires:
 
 Do not add a repository license or ship a linked emulator release until the
 combined dependency and distribution licensing review is recorded.
+
+## Automatic Git handoff
+
+Finishing a successful file-changing task includes committing and pushing the
+task's changes. Do this automatically without waiting for a separate request.
+
+1. Run the verification appropriate to the files and risk of the task.
+2. Review `git status` and the final diff before staging.
+3. Stage only paths or hunks changed for the current task. Use explicit
+   pathspecs; never use `git add -A`, `git add .`, or otherwise sweep unrelated
+   work into the commit.
+4. Create a concise conventional commit that describes the completed task.
+5. Push the new commit to the current branch's configured upstream. If the
+   branch has no upstream and `origin` is the intended repository, establish it
+   with `git push -u origin HEAD`.
+
+Existing user changes are never part of the automatic handoff unless they were
+explicitly placed in the current task. Do not commit generated artifacts,
+secrets, proprietary evidence, or private test data. If a file mixes task
+changes with unrelated user edits, stage only the task hunks when that can be
+done safely; otherwise leave it uncommitted and report the conflict.
+
+Do not commit or push failed, incomplete, or unverified work as if it were
+finished. Never amend, rebase, force-push, or bypass hooks unless the user
+explicitly requests it. An explicit user request not to commit or push takes
+precedence. For work spanning multiple repositories, apply this policy
+separately in each repository and report each pushed branch and commit hash.
