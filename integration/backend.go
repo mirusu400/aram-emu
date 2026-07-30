@@ -29,6 +29,7 @@ const (
 var stateMagic = []byte("ARAMSTATE\x00")
 
 type Backend struct {
+	operationMu   sync.Mutex
 	mu            sync.RWMutex
 	factory       aramcore.Factory
 	machine       aramcore.Machine
@@ -37,6 +38,7 @@ type Backend struct {
 	input         frontend.InputInfo
 	stateRoot     string
 	audio         frontend.AudioSettings
+	runRequested  bool
 	lastFrameHash uint64
 	frameSequence uint64
 }
@@ -44,6 +46,7 @@ type Backend struct {
 func NewBackend(factory aramcore.Factory) *Backend {
 	if factory == nil {
 		defaultFactory := application.NewFactory()
+		defaultFactory.KTFRunBudget = application.DefaultKTFHandsetRunBudget
 		factory = defaultFactory
 	}
 	return &Backend{factory: factory}
@@ -65,6 +68,9 @@ func (backend *Backend) OpenWithProgress(
 	request frontend.OpenRequest,
 	progress func(frontend.OpenStage),
 ) (frontend.InputInfo, error) {
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+
 	if progress != nil {
 		progress(frontend.OpenStageInspecting)
 	}
@@ -120,6 +126,7 @@ func (backend *Backend) OpenWithProgress(
 	backend.sourceFile = sourceFile
 	backend.source = source
 	backend.input = info
+	backend.runRequested = false
 	backend.lastFrameHash = 0
 	backend.frameSequence = 0
 	backend.mu.Unlock()
@@ -192,11 +199,21 @@ func inspectSource(
 }
 
 func (backend *Backend) State() frontend.BackendState {
-	machine := backend.currentMachine()
+	backend.mu.RLock()
+	machine := backend.machine
+	runRequested := backend.runRequested
+	backend.mu.RUnlock()
 	if machine == nil {
 		return frontend.StateEmpty
 	}
-	switch machine.State() {
+	state := machine.State()
+	if runRequested {
+		switch state {
+		case aramcore.StateReady, aramcore.StateRunning, aramcore.StatePaused:
+			return frontend.StateRunning
+		}
+	}
+	switch state {
 	case aramcore.StateReady:
 		return frontend.StateReady
 	case aramcore.StateRunning:
@@ -221,22 +238,22 @@ func (backend *Backend) Capability(command frontend.BackendCommand) frontend.Cap
 	if machine == nil {
 		return frontend.Capability{Reason: "No aram-core machine is loaded"}
 	}
-	state := machine.State()
+	state := backend.State()
 	supported := false
 	switch command {
 	case frontend.CommandStart:
-		supported = state == aramcore.StateReady || state == aramcore.StatePaused
+		supported = state == frontend.StateReady || state == frontend.StatePaused
 	case frontend.CommandPauseResume:
-		supported = state == aramcore.StateRunning || state == aramcore.StatePaused
+		supported = state == frontend.StateRunning || state == frontend.StatePaused
 	case frontend.CommandStop:
-		supported = state == aramcore.StateRunning || state == aramcore.StatePaused
+		supported = state == frontend.StateRunning || state == frontend.StatePaused
 	case frontend.CommandReset:
-		supported = state != aramcore.StateEmpty && state != aramcore.StateFaulted
+		supported = state != frontend.StateEmpty && state != frontend.StateFaulted
 	case frontend.CommandFrame:
-		supported = state == aramcore.StateReady ||
-			state == aramcore.StatePaused
+		supported = state == frontend.StateReady ||
+			state == frontend.StatePaused
 	case frontend.CommandLoadState, frontend.CommandSaveState:
-		supported = state != aramcore.StateEmpty && state != aramcore.StateRunning
+		supported = state != frontend.StateEmpty && state != frontend.StateRunning
 	case frontend.CommandFastForward:
 		return frontend.Capability{
 			Reason: "The core machine contract does not expose speed control yet",
@@ -271,6 +288,9 @@ func (backend *Backend) ExecuteCommand(
 	ctx context.Context,
 	request frontend.CommandRequest,
 ) error {
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+
 	capability := backend.Capability(request.Command)
 	if !capability.Supported {
 		return errors.New(capability.Reason)
@@ -287,27 +307,60 @@ func (backend *Backend) ExecuteCommand(
 	switch request.Command {
 	case frontend.CommandStart:
 		err = machine.Start(ctx)
+		if err == nil {
+			backend.setRunRequested(machineCanContinue(machine.State()))
+		}
 	case frontend.CommandPauseResume:
-		if machine.State() == aramcore.StatePaused {
-			err = machine.Resume()
+		if backend.runningRequested() {
+			backend.setRunRequested(false)
 		} else {
-			err = machine.Pause()
+			backend.setRunRequested(machineCanContinue(machine.State()))
 		}
 	case frontend.CommandStop:
+		backend.setRunRequested(false)
 		err = machine.Stop()
 	case frontend.CommandReset:
+		backend.setRunRequested(false)
 		err = machine.Reset(ctx)
 	case frontend.CommandFrame:
 		err = machine.StepFrame(ctx)
 	case frontend.CommandSaveState:
 		err = backend.saveState(request.Slot)
 	case frontend.CommandLoadState:
+		backend.setRunRequested(false)
 		err = backend.loadState(request.Slot)
 	default:
 		err = fmt.Errorf("unsupported backend command %q", request.Command)
 	}
 	if err != nil {
 		return backendError(classifyMachineError(machine, err), err)
+	}
+	return nil
+}
+
+// RunFrame advances one guest presentation quantum while preserving the
+// product-level running intent across the core's deterministic frame yield.
+func (backend *Backend) RunFrame(ctx context.Context) error {
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+
+	if !backend.runningRequested() {
+		return nil
+	}
+	machine := backend.currentMachine()
+	if machine == nil {
+		backend.setRunRequested(false)
+		return backendError(
+			frontend.FailureBackendUnavailable,
+			errors.New("no aram-core machine is loaded"),
+		)
+	}
+	if err := machine.StepFrame(ctx); err != nil {
+		backend.setRunRequested(false)
+		return backendError(classifyMachineError(machine, err), err)
+	}
+	if !machineCanContinue(machine.State()) {
+		backend.setRunRequested(false)
 	}
 	return nil
 }
@@ -352,6 +405,24 @@ func (backend *Backend) ConfigureAudio(settings frontend.AudioSettings) error {
 	backend.audio = settings
 	backend.mu.Unlock()
 	return nil
+}
+
+func (backend *Backend) DrainAudio() frontend.AudioChunk {
+	if !backend.operationMu.TryLock() {
+		return frontend.AudioChunk{}
+	}
+	defer backend.operationMu.Unlock()
+
+	machine := backend.currentMachine()
+	if machine == nil {
+		return frontend.AudioChunk{}
+	}
+	chunk := machine.DrainAudio()
+	return frontend.AudioChunk{
+		SampleRate: chunk.SampleRate,
+		Channels:   chunk.Channels,
+		PCM16:      chunk.PCM16,
+	}
 }
 
 func (backend *Backend) ToolSnapshot(
@@ -408,6 +479,9 @@ func (backend *Backend) ToolSnapshot(
 }
 
 func (backend *Backend) Close() error {
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+
 	backend.mu.Lock()
 	machine := backend.machine
 	sourceFile := backend.sourceFile
@@ -415,6 +489,7 @@ func (backend *Backend) Close() error {
 	backend.sourceFile = nil
 	backend.source = aramcore.Source{}
 	backend.input = frontend.InputInfo{}
+	backend.runRequested = false
 	backend.lastFrameHash = 0
 	backend.frameSequence = 0
 	backend.mu.Unlock()
@@ -433,6 +508,24 @@ func (backend *Backend) currentMachine() aramcore.Machine {
 	backend.mu.RLock()
 	defer backend.mu.RUnlock()
 	return backend.machine
+}
+
+func (backend *Backend) runningRequested() bool {
+	backend.mu.RLock()
+	defer backend.mu.RUnlock()
+	return backend.runRequested
+}
+
+func (backend *Backend) setRunRequested(requested bool) {
+	backend.mu.Lock()
+	backend.runRequested = requested
+	backend.mu.Unlock()
+}
+
+func machineCanContinue(state aramcore.State) bool {
+	return state == aramcore.StateReady ||
+		state == aramcore.StateRunning ||
+		state == aramcore.StatePaused
 }
 
 func (backend *Backend) saveState(slot int) error {
@@ -609,6 +702,14 @@ func frameFingerprint(frame image.Image) uint64 {
 	bounds := frame.Bounds()
 	_ = binary.Write(hash, binary.LittleEndian, int64(bounds.Dx()))
 	_ = binary.Write(hash, binary.LittleEndian, int64(bounds.Dy()))
+	if rgba, ok := frame.(*image.RGBA); ok {
+		rowBytes := bounds.Dx() * 4
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			offset := rgba.PixOffset(bounds.Min.X, y)
+			_, _ = hash.Write(rgba.Pix[offset : offset+rowBytes])
+		}
+		return hash.Sum64()
+	}
 	var pixel [8]byte
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {

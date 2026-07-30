@@ -2,11 +2,21 @@ package main
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/mirusu400/aram-core/cpu"
 	"github.com/mirusu400/aram-frontend/frontend"
 )
+
+func TestSplitControlsTrimsAndDropsEmptyItems(t *testing.T) {
+	if got := splitControls(" ok, , left ,,soft-right "); !slices.Equal(
+		got,
+		[]string{"ok", "left", "soft-right"},
+	) {
+		t.Fatalf("splitControls() = %q", got)
+	}
+}
 
 func TestClassifyErrorPreservesActionableCompatibilityStatus(t *testing.T) {
 	tests := []struct {

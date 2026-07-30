@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mirusu400/aram-core/cpu"
@@ -35,6 +36,11 @@ type probeResult struct {
 	WIPI              *wipiResult           `json:"wipi,omitempty"`
 	EADS              *eadsResult           `json:"eads,omitempty"`
 	TotalInstructions uint64                `json:"total_instructions,omitempty"`
+	FirstFrameSlice   uint64                `json:"first_frame_slice,omitempty"`
+	PreInputSlices    uint64                `json:"pre_input_slices,omitempty"`
+	PostFrameSlices   uint64                `json:"post_frame_slices,omitempty"`
+	InputEvents       uint64                `json:"input_events,omitempty"`
+	FrameChanges      uint64                `json:"frame_changes,omitempty"`
 	ErrorKind         frontend.FailureKind  `json:"error_kind,omitempty"`
 	Detail            string                `json:"detail,omitempty"`
 	ElapsedMS         int64                 `json:"elapsed_ms"`
@@ -90,6 +96,31 @@ func run() int {
 	input := flag.String("input", "", "path to an authorized WIPI input")
 	label := flag.String("label", "", "privacy-safe display name for the result")
 	slices := flag.Uint64("slices", 256, "maximum one-instruction execution slices")
+	postFrameSlices := flag.Uint64(
+		"post-frame-slices",
+		0,
+		"execution slices to run after the first presented frame",
+	)
+	controls := flag.String(
+		"controls",
+		"",
+		"comma-separated controls to press and release after the first frame",
+	)
+	preInputSlices := flag.Uint64(
+		"pre-input-slices",
+		0,
+		"execution slices to run before sending the first control",
+	)
+	controlHoldSlices := flag.Uint64(
+		"control-hold-slices",
+		64,
+		"execution slices between each control press and release",
+	)
+	controlReleaseSlices := flag.Uint64(
+		"control-release-slices",
+		4,
+		"execution slices after each control release",
+	)
 	timeout := flag.Duration("timeout", 10*time.Second, "whole-probe timeout")
 	flag.Parse()
 
@@ -99,8 +130,11 @@ func run() int {
 		Status: "runner_error",
 		State:  frontend.StateEmpty,
 	}
-	if *input == "" || *slices == 0 || *timeout <= 0 {
-		result.Detail = "input, positive slices, and positive timeout are required"
+	parsedControls := splitControls(*controls)
+	if *input == "" || *slices == 0 || *timeout <= 0 ||
+		len(parsedControls) != 0 &&
+			(*controlHoldSlices == 0 || *controlReleaseSlices == 0) {
+		result.Detail = "input, positive slices/timeout, and positive control slice counts are required"
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		writeResult(result)
 		return 2
@@ -141,16 +175,9 @@ func run() int {
 	}
 
 	result.Level = "loads"
-	for range *slices {
-		err = backend.Execute(ctx, frontend.CommandStart)
+	for slice := range *slices {
+		err = runProbeSlice(ctx, backend, &result, slice == 0)
 		diagnostics := backend.Diagnostics()
-		result.State = diagnostics.State
-		copyDiagnostics(&result, diagnostics)
-		if diagnostics.EADS != nil {
-			result.TotalInstructions = diagnostics.EADS.TotalInstructions
-		} else if diagnostics.Execution != nil {
-			result.TotalInstructions += diagnostics.Execution.Instructions
-		}
 		if err != nil {
 			result.Status, _, result.ErrorKind = classifyError(err, result.Format)
 			result.Detail = err.Error()
@@ -160,6 +187,7 @@ func run() int {
 			(diagnostics.WIPI != nil && diagnostics.WIPI.PresentCount > 0) {
 			result.Status = "ok_frame"
 			result.Level = "boots"
+			result.FirstFrameSlice = slice + 1
 			break
 		}
 		if diagnostics.Execution != nil &&
@@ -171,6 +199,90 @@ func run() int {
 			diagnostics.Execution.Reason == "exited" {
 			result.Status = "ok_exit"
 			break
+		}
+	}
+	if result.Status == "ok_frame" &&
+		(*postFrameSlices != 0 || len(parsedControls) != 0) {
+		firstFrameSequence := backend.VideoFrame().Sequence
+		if len(parsedControls) != 0 && *preInputSlices != 0 {
+			before := result.PostFrameSlices
+			err = runProbeFrames(
+				ctx,
+				backend,
+				&result,
+				*preInputSlices,
+			)
+			result.PreInputSlices = result.PostFrameSlices - before
+			if err != nil {
+				result.Status, _, result.ErrorKind = classifyError(err, result.Format)
+				result.Detail = err.Error()
+			}
+		}
+		for _, control := range parsedControls {
+			if err != nil || result.State != frontend.StateRunning {
+				break
+			}
+			err = backend.QueueInput(frontend.InputEvent{
+				Control: control,
+				Pressed: true,
+			})
+			if err != nil {
+				result.Status, _, result.ErrorKind = classifyError(err, result.Format)
+				result.Detail = err.Error()
+				break
+			}
+			result.InputEvents++
+			if err = runProbeFrames(
+				ctx,
+				backend,
+				&result,
+				*controlHoldSlices,
+			); err != nil {
+				break
+			}
+			if result.State != frontend.StateRunning {
+				break
+			}
+			err = backend.QueueInput(frontend.InputEvent{
+				Control: control,
+				Pressed: false,
+			})
+			if err != nil {
+				result.Status, _, result.ErrorKind = classifyError(err, result.Format)
+				result.Detail = err.Error()
+				break
+			}
+			result.InputEvents++
+			if err = runProbeFrames(
+				ctx,
+				backend,
+				&result,
+				*controlReleaseSlices,
+			); err != nil {
+				break
+			}
+		}
+		if err == nil && result.State == frontend.StateRunning {
+			err = runProbeFrames(
+				ctx,
+				backend,
+				&result,
+				*postFrameSlices,
+			)
+		}
+		if err != nil {
+			result.Status, _, result.ErrorKind = classifyError(err, result.Format)
+			result.Detail = err.Error()
+		} else if result.State == frontend.StateRunning {
+			if result.InputEvents != 0 {
+				result.Level = "interactive"
+			} else if result.PostFrameSlices != 0 {
+				result.Level = "sustained"
+			}
+		}
+		lastFrameSequence := backend.VideoFrame().Sequence
+		if lastFrameSequence > firstFrameSequence {
+			result.FrameChanges = lastFrameSequence - firstFrameSequence
 		}
 	}
 	if result.Status == "runner_error" {
@@ -190,6 +302,58 @@ func run() int {
 		return 0
 	}
 	return 1
+}
+
+func splitControls(value string) []string {
+	var controls []string
+	for _, control := range strings.Split(value, ",") {
+		if control = strings.TrimSpace(control); control != "" {
+			controls = append(controls, control)
+		}
+	}
+	return controls
+}
+
+func runProbeSlice(
+	ctx context.Context,
+	backend *integration.Backend,
+	result *probeResult,
+	start bool,
+) error {
+	var err error
+	if start {
+		err = backend.Execute(ctx, frontend.CommandStart)
+	} else {
+		err = backend.RunFrame(ctx)
+	}
+	diagnostics := backend.Diagnostics()
+	result.State = diagnostics.State
+	copyDiagnostics(result, diagnostics)
+	if diagnostics.EADS != nil {
+		result.TotalInstructions = diagnostics.EADS.TotalInstructions
+	} else if diagnostics.Execution != nil {
+		result.TotalInstructions += diagnostics.Execution.Instructions
+	}
+	return err
+}
+
+func runProbeFrames(
+	ctx context.Context,
+	backend *integration.Backend,
+	result *probeResult,
+	count uint64,
+) error {
+	for range count {
+		if result.State != frontend.StateRunning {
+			return nil
+		}
+		if err := runProbeSlice(ctx, backend, result, false); err != nil {
+			return err
+		}
+		result.PostFrameSlices++
+		_ = backend.VideoFrame()
+	}
+	return nil
 }
 
 func copyDiagnostics(result *probeResult, diagnostics integration.Diagnostics) {

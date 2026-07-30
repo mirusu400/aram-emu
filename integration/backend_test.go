@@ -4,14 +4,52 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"image"
+	"image/color"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mirusu400/aram-core/application"
 	"github.com/mirusu400/aram-frontend/frontend"
 )
+
+func TestDefaultBackendUsesKTFHandsetRunBudget(t *testing.T) {
+	backend := NewBackend(nil)
+	factory, ok := backend.factory.(application.Factory)
+	if !ok {
+		t.Fatalf("default factory type = %T", backend.factory)
+	}
+	if factory.KTFRunBudget != application.DefaultKTFHandsetRunBudget {
+		t.Fatalf(
+			"default KTF run budget = %d, want %d",
+			factory.KTFRunBudget,
+			application.DefaultKTFHandsetRunBudget,
+		)
+	}
+	if factory.RunBudget != application.DefaultRunBudget {
+		t.Fatalf(
+			"default generic run budget = %d, want %d",
+			factory.RunBudget,
+			application.DefaultRunBudget,
+		)
+	}
+}
+
+func TestRGBAFrameFingerprintTracksVisiblePixels(t *testing.T) {
+	frame := image.NewRGBA(image.Rect(0, 0, 4, 3))
+	before := frameFingerprint(frame)
+	frame.SetRGBA(2, 1, color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff})
+	after := frameFingerprint(frame)
+	if before == after {
+		t.Fatal("RGBA frame fingerprint did not change with a visible pixel")
+	}
+	if got := frameFingerprint(frame); got != after {
+		t.Fatalf("stable RGBA frame fingerprint = %d, want %d", got, after)
+	}
+}
 
 func TestOrdinaryOpenMapsAndExecutesNativeEntry(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "synthetic.dat")
@@ -53,7 +91,7 @@ func TestOrdinaryOpenMapsAndExecutesNativeEntry(t *testing.T) {
 	if err := backend.Execute(context.Background(), frontend.CommandStart); err != nil {
 		t.Fatal(err)
 	}
-	if backend.State() != frontend.StatePaused {
+	if backend.State() != frontend.StateRunning {
 		t.Fatalf("state after entry slice = %s", backend.State())
 	}
 	diagnostics := backend.Diagnostics()
@@ -83,6 +121,65 @@ func TestOrdinaryOpenMapsAndExecutesNativeEntry(t *testing.T) {
 	}
 	if len(debugger.Lines) < 3 {
 		t.Fatalf("debugger snapshot = %+v", debugger)
+	}
+}
+
+func TestBackendKeepsLogicalRunStateAcrossCoreFrameYields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "synthetic.dat")
+	if err := os.WriteFile(path, syntheticEADS(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := NewBackend(nil)
+	t.Cleanup(func() { _ = backend.Close() })
+	if _, err := backend.Open(
+		context.Background(),
+		frontend.OpenRequest{Path: path},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Execute(context.Background(), frontend.CommandStart); err != nil {
+		t.Fatal(err)
+	}
+	if backend.State() != frontend.StateRunning {
+		t.Fatalf("state after start = %s", backend.State())
+	}
+	if capability := backend.Capability(frontend.CommandFrame); capability.Supported {
+		t.Fatalf("manual frame capability while running = %+v", capability)
+	}
+	if err := backend.RunFrame(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if backend.State() != frontend.StateRunning {
+		t.Fatalf("state after scheduled frame = %s", backend.State())
+	}
+
+	if err := backend.Execute(context.Background(), frontend.CommandPauseResume); err != nil {
+		t.Fatal(err)
+	}
+	if backend.State() != frontend.StatePaused {
+		t.Fatalf("state after pause = %s", backend.State())
+	}
+	if capability := backend.Capability(frontend.CommandFrame); !capability.Supported {
+		t.Fatalf("manual frame capability while paused = %+v", capability)
+	}
+	if err := backend.RunFrame(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if backend.State() != frontend.StatePaused {
+		t.Fatalf("paused state changed after ignored scheduled frame = %s", backend.State())
+	}
+
+	if err := backend.Execute(context.Background(), frontend.CommandPauseResume); err != nil {
+		t.Fatal(err)
+	}
+	if backend.State() != frontend.StateRunning {
+		t.Fatalf("state after resume = %s", backend.State())
+	}
+	if err := backend.Execute(context.Background(), frontend.CommandStop); err != nil {
+		t.Fatal(err)
+	}
+	if backend.State() != frontend.StateStopped {
+		t.Fatalf("state after stop = %s", backend.State())
 	}
 }
 
@@ -133,7 +230,8 @@ func TestFrontendInitialPathConvergesOnIntegratedOpen(t *testing.T) {
 		if err := shell.Update(); err != nil {
 			t.Fatal(err)
 		}
-		if backend.State() == frontend.StateReady {
+		if state := backend.State(); state == frontend.StateReady ||
+			state == frontend.StateRunning {
 			return
 		}
 		time.Sleep(time.Millisecond)
@@ -160,11 +258,14 @@ func TestFrontendFileOpenCommandReachesIntegratedEntry(t *testing.T) {
 		if err := shell.Update(); err != nil {
 			t.Fatal(err)
 		}
-		if backend.State() == frontend.StateReady {
+		switch backend.State() {
+		case frontend.StateRunning:
+			return
+		case frontend.StateReady:
 			if err := backend.Execute(context.Background(), frontend.CommandStart); err != nil {
 				t.Fatal(err)
 			}
-			if backend.State() != frontend.StatePaused {
+			if backend.State() != frontend.StateRunning {
 				t.Fatalf("state after entry = %s", backend.State())
 			}
 			return
@@ -292,18 +393,19 @@ func TestMagicholeReferenceUsesOrdinaryProductPath(t *testing.T) {
 
 func syntheticEADS() []byte {
 	const offset = 0x80
-	data := make([]byte, offset+0x30+4)
+	data := make([]byte, offset+0x30+6)
 	copy(data[offset:], "EADS")
 	binary.LittleEndian.PutUint32(data[offset+4:], 1)
 	binary.LittleEndian.PutUint32(data[offset+8:], 1)
 	binary.LittleEndian.PutUint32(data[offset+12:], 0x02000000)
-	binary.LittleEndian.PutUint32(data[offset+16:], 4)
+	binary.LittleEndian.PutUint32(data[offset+16:], 6)
 	binary.LittleEndian.PutUint32(data[offset+20:], 0x03000000)
 	binary.LittleEndian.PutUint32(data[offset+24:], 0x1000)
 	copy(data[offset+0x20:], "SyntheticEADS")
 	copy(data[offset+0x30:], []byte{
 		0x00, 0xb5,
 		0x00, 0xbe,
+		0xfe, 0xe7,
 	})
 	return data
 }
