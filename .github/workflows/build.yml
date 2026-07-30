@@ -41,20 +41,20 @@ jobs:
 
     steps:
       - name: Check out product
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: aram-emu
           persist-credentials: false
 
       - name: Check out core
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: mirusu400/aram-core
           path: aram-core
           persist-credentials: false
 
       - name: Check out frontend
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: mirusu400/aram-frontend
           path: aram-frontend
@@ -120,7 +120,7 @@ jobs:
         run: tar -C build/package -czf "dist/${{ matrix.archive }}" .
 
       - name: Upload desktop build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: aram-${{ matrix.platform }}
           path: aram-emu/dist/${{ matrix.archive }}
