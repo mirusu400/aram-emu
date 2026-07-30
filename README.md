@@ -82,11 +82,15 @@ Corpus discovery, caching, comparison, and reports belong to the sibling
 Every push and pull request runs the desktop tests and builds ARAM on Windows
 x64, Linux x64, and macOS arm64. Download the compressed `aram-*` build from
 the workflow run's **Artifacts** section. CI artifacts are retained for 14
-days and are development snapshots rather than versioned releases.
+days. A successful push to `main` also updates the rolling `nightly`
+prerelease with the same three archives. Publishing a non-nightly GitHub
+release builds the tagged product and attaches its archives to that release.
 
-The product workflow checks out the public `aram-core` and `aram-frontend`
-repositories next to this repository so the local `go.work` and `replace`
-directives resolve exactly as they do in a developer checkout.
+The product workflow checks out pinned, known-compatible revisions of the
+public `aram-core` and `aram-frontend` repositories next to this repository,
+so the local `go.work` and `replace` directives resolve reproducibly. A manual
+workflow run may override either dependency ref for integration testing. Each
+archive contains `BUILD-INFO.txt` with the exact revisions used.
 
 ## Project documents
 

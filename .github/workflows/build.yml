@@ -2,11 +2,29 @@ name: build
 
 on:
   push:
+    branches:
+      - "**"
   pull_request:
   workflow_dispatch:
+    inputs:
+      core_ref:
+        description: aram-core branch, tag, or commit to integrate
+        required: false
+        default: a87c96d9d0b8ebf37c4a455b362fdd67788c10e2
+      frontend_ref:
+        description: aram-frontend branch, tag, or commit to integrate
+        required: false
+        default: 1217a9657aafdd1014001877d027f8296489404b
+  release:
+    types:
+      - published
 
 permissions:
   contents: read
+
+env:
+  ARAM_CORE_REF: a87c96d9d0b8ebf37c4a455b362fdd67788c10e2
+  ARAM_FRONTEND_REF: 1217a9657aafdd1014001877d027f8296489404b
 
 concurrency:
   group: build-${{ github.workflow }}-${{ github.ref }}
@@ -50,6 +68,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: mirusu400/aram-core
+          ref: ${{ inputs.core_ref || env.ARAM_CORE_REF }}
           path: aram-core
           persist-credentials: false
 
@@ -57,6 +76,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: mirusu400/aram-frontend
+          ref: ${{ inputs.frontend_ref || env.ARAM_FRONTEND_REF }}
           path: aram-frontend
           persist-credentials: false
 
@@ -103,6 +123,11 @@ jobs:
           go build -trimpath -ldflags="-s -w" \
             -o "build/package/${{ matrix.probe }}" ./cmd/aram-probe
           cp README.md build/package/
+          {
+            echo "aram-emu=${GITHUB_SHA}"
+            echo "aram-core=$(git -C ../aram-core rev-parse HEAD)"
+            echo "aram-frontend=$(git -C ../aram-frontend rev-parse HEAD)"
+          } > build/package/BUILD-INFO.txt
 
       - name: Package Windows build
         if: runner.os == 'Windows'
@@ -126,3 +151,67 @@ jobs:
           path: aram-emu/dist/${{ matrix.archive }}
           if-no-files-found: error
           retention-days: 14
+
+  publish-nightly:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - desktop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Publish rolling Nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          title="Nightly ${short_sha}"
+          notes="Automated main-branch build from ${GITHUB_SHA}."
+          git tag --force nightly "${GITHUB_SHA}"
+          git push --force origin refs/tags/nightly
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly \
+              --prerelease \
+              --title "${title}" \
+              --notes "${notes}"
+          else
+            gh release create nightly \
+              --verify-tag \
+              --prerelease \
+              --title "${title}" \
+              --notes "${notes}"
+          fi
+          mapfile -t assets < <(find release-assets -type f -print)
+          test "${#assets[@]}" -gt 0
+          gh release upload nightly "${assets[@]}" --clobber
+
+  publish-stable:
+    if: github.event_name == 'release' && github.event.release.tag_name != 'nightly'
+    needs:
+      - desktop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Attach archives to the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          mapfile -t assets < <(find release-assets -type f -print)
+          test "${#assets[@]}" -gt 0
+          gh release upload "${RELEASE_TAG}" "${assets[@]}" --clobber
