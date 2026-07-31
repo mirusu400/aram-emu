@@ -252,7 +252,13 @@ jobs:
           cache-provider: basic
 
       - name: Install 16 KB-compatible Android NDK
-        run: sdkmanager "ndk;28.2.13676358"
+        shell: bash
+        run: |
+          sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          test -x "${sdkmanager}"
+          "${sdkmanager}" "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/28.2.13676358" \
+            >> "${GITHUB_ENV}"
 
       - name: Build integrated Android AAR
         working-directory: aram-emu
