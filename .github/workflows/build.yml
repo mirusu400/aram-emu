@@ -10,11 +10,11 @@ on:
       core_ref:
         description: aram-core branch, tag, or commit to integrate
         required: false
-        default: 06e964b4ab78415e3234c43007b1661d3d7865ce
+        default: e9e1285b42c3e560de9b2e56a53901f7e20843ef
       frontend_ref:
         description: aram-frontend branch, tag, or commit to integrate
         required: false
-        default: 11a7706a300cba53d7c94479cf04296003333175
+        default: b84ec4132dea7a3b8254d4f79a6ab09c7b835fa5
   release:
     types:
       - published
@@ -23,8 +23,8 @@ permissions:
   contents: read
 
 env:
-  ARAM_CORE_REF: 06e964b4ab78415e3234c43007b1661d3d7865ce
-  ARAM_FRONTEND_REF: 11a7706a300cba53d7c94479cf04296003333175
+  ARAM_CORE_REF: e9e1285b42c3e560de9b2e56a53901f7e20843ef
+  ARAM_FRONTEND_REF: b84ec4132dea7a3b8254d4f79a6ab09c7b835fa5
 
 concurrency:
   group: build-${{ github.workflow }}-${{ github.ref }}
