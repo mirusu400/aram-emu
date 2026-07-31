@@ -46,6 +46,7 @@ type Backend struct {
 func NewBackend(factory aramcore.Factory) *Backend {
 	if factory == nil {
 		defaultFactory := application.NewFactory()
+		defaultFactory.FrameRunBudget = application.DefaultHandsetRunBudget
 		defaultFactory.KTFRunBudget = application.DefaultKTFHandsetRunBudget
 		factory = defaultFactory
 	}

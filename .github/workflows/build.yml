@@ -10,7 +10,7 @@ on:
       core_ref:
         description: aram-core branch, tag, or commit to integrate
         required: false
-        default: 30f06f9056062becebf1964722398006c1c7b314
+        default: 06e964b4ab78415e3234c43007b1661d3d7865ce
       frontend_ref:
         description: aram-frontend branch, tag, or commit to integrate
         required: false
@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 env:
-  ARAM_CORE_REF: 30f06f9056062becebf1964722398006c1c7b314
+  ARAM_CORE_REF: 06e964b4ab78415e3234c43007b1661d3d7865ce
   ARAM_FRONTEND_REF: 10261b2375c6e8a305dc77a99285f1613e61eae5
 
 concurrency:
