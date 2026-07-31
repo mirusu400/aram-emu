@@ -83,8 +83,10 @@ Every push and pull request runs the desktop tests and builds ARAM on Windows
 x64, Linux x64, and macOS arm64. Download the compressed `aram-*` build from
 the workflow run's **Artifacts** section. CI artifacts are retained for 14
 days. A successful push to `main` also updates the rolling `nightly`
-prerelease with the same three archives. Publishing a non-nightly GitHub
-release builds the tagged product and attaches its archives to that release.
+prerelease with the exact same three archives and `SHA256SUMS.txt`. The release
+notes link back to the source commit and workflow run. Publishing a
+non-nightly GitHub release builds the tagged product and attaches its archives
+and checksums to that release.
 
 The product workflow checks out pinned, known-compatible revisions of the
 public `aram-core` and `aram-frontend` repositories next to this repository,

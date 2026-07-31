@@ -10,11 +10,11 @@ on:
       core_ref:
         description: aram-core branch, tag, or commit to integrate
         required: false
-        default: a87c96d9d0b8ebf37c4a455b362fdd67788c10e2
+        default: 30f06f9056062becebf1964722398006c1c7b314
       frontend_ref:
         description: aram-frontend branch, tag, or commit to integrate
         required: false
-        default: 1217a9657aafdd1014001877d027f8296489404b
+        default: 97077dc483f373bfbf45e0ac70c6523d9a42bae9
   release:
     types:
       - published
@@ -23,8 +23,8 @@ permissions:
   contents: read
 
 env:
-  ARAM_CORE_REF: a87c96d9d0b8ebf37c4a455b362fdd67788c10e2
-  ARAM_FRONTEND_REF: 1217a9657aafdd1014001877d027f8296489404b
+  ARAM_CORE_REF: 30f06f9056062becebf1964722398006c1c7b314
+  ARAM_FRONTEND_REF: 97077dc483f373bfbf45e0ac70c6523d9a42bae9
 
 concurrency:
   group: build-${{ github.workflow }}-${{ github.ref }}
@@ -167,6 +167,18 @@ jobs:
         with:
           path: release-assets
           merge-multiple: true
+      - name: Verify release archives
+        shell: bash
+        run: |
+          cd release-assets
+          test -f aram-windows-amd64.zip
+          test -f aram-linux-amd64.tar.gz
+          test -f aram-macos-arm64.tar.gz
+          sha256sum \
+            aram-windows-amd64.zip \
+            aram-linux-amd64.tar.gz \
+            aram-macos-arm64.tar.gz \
+            > SHA256SUMS.txt
       - name: Publish rolling Nightly release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -174,7 +186,10 @@ jobs:
         run: |
           short_sha="${GITHUB_SHA::7}"
           title="Nightly ${short_sha}"
-          notes="Automated main-branch build from ${GITHUB_SHA}."
+          notes="Automated main-branch build from ${GITHUB_SHA}.
+
+          Source: https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}
+          Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           git tag --force nightly "${GITHUB_SHA}"
           git push --force origin refs/tags/nightly
           if gh release view nightly >/dev/null 2>&1; then
@@ -206,6 +221,18 @@ jobs:
         with:
           path: release-assets
           merge-multiple: true
+      - name: Verify release archives
+        shell: bash
+        run: |
+          cd release-assets
+          test -f aram-windows-amd64.zip
+          test -f aram-linux-amd64.tar.gz
+          test -f aram-macos-arm64.tar.gz
+          sha256sum \
+            aram-windows-amd64.zip \
+            aram-linux-amd64.tar.gz \
+            aram-macos-arm64.tar.gz \
+            > SHA256SUMS.txt
       - name: Attach archives to the published release
         env:
           GH_TOKEN: ${{ github.token }}
