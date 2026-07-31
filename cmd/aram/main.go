@@ -25,7 +25,11 @@ func (backend *productBackend) InstallProductUpdate(
 	if err != nil {
 		return fmt.Errorf("install %s product update: %w", update.Channel, err)
 	}
-	if err := bootstrap.Launch(executable, backend.relaunchArgs); err != nil {
+	relaunchArgs := backend.relaunchArgs
+	if update.RelaunchPath != "" {
+		relaunchArgs = []string{update.RelaunchPath}
+	}
+	if err := bootstrap.Launch(executable, relaunchArgs); err != nil {
 		return err
 	}
 	return nil

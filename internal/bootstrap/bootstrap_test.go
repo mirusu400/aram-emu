@@ -91,6 +91,37 @@ func TestCurrentExecutableRejectsMarkerOutsideRuntimeDirectory(t *testing.T) {
 	}
 }
 
+func TestShouldForwardOnlyOriginalUnchangedLauncher(t *testing.T) {
+	marker := currentRuntime{
+		Executable:         filepath.Join("runtime", productExecutableName()),
+		LauncherExecutable: filepath.Join("download", productExecutableName()),
+		LauncherSHA256:     "launcher-digest",
+	}
+	installed := marker.Executable
+	if !shouldForward(
+		marker,
+		marker.LauncherExecutable,
+		marker.LauncherSHA256,
+		installed,
+	) {
+		t.Fatal("unchanged original launcher did not forward")
+	}
+	if shouldForward(marker, marker.LauncherExecutable, "new-build", installed) {
+		t.Fatal("a newer executable at the launcher path forwarded to the old runtime")
+	}
+	if shouldForward(
+		marker,
+		filepath.Join("new-download", productExecutableName()),
+		"new-build",
+		installed,
+	) {
+		t.Fatal("a separately downloaded executable forwarded to the old runtime")
+	}
+	if shouldForward(marker, installed, "installed-build", installed) {
+		t.Fatal("the installed runtime forwarded to itself")
+	}
+}
+
 func createProductArchive(
 	t *testing.T,
 	archivePath string,

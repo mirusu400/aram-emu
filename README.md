@@ -79,6 +79,10 @@ plugins. Choosing Stable installs the latest non-prerelease when one exists and
 otherwise continues with the bundled build. After an update-driven restart,
 ARAM opens the game picker automatically.
 
+The Updates page uses the same installation path: downloading the ARAM product
+immediately installs and restarts it, reopening the currently loaded input.
+Standalone core-tool and frontend archives are not installed into the product.
+
 The bootstrap never overwrites its running executable. It keeps versioned,
 content-addressed runtimes under `ARAM/runtime/versions` and records the active
 one in `ARAM/runtime/current.json`; launching the original downloaded binary

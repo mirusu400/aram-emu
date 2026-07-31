@@ -26,16 +26,25 @@ const (
 )
 
 type currentRuntime struct {
-	Executable    string    `json:"executable"`
-	ArchiveSHA256 string    `json:"archive_sha256"`
-	InstalledAt   time.Time `json:"installed_at"`
+	Executable         string    `json:"executable"`
+	ArchiveSHA256      string    `json:"archive_sha256"`
+	LauncherExecutable string    `json:"launcher_executable,omitempty"`
+	LauncherSHA256     string    `json:"launcher_sha256,omitempty"`
+	InstalledAt        time.Time `json:"installed_at"`
 }
 
 // ForwardToInstalled starts the currently installed runtime when the user
 // launches an older bootstrap copy. The installed runtime recognizes itself
 // by its absolute path and continues in-process instead of forwarding again.
 func ForwardToInstalled(args []string) (bool, error) {
-	installed, err := CurrentExecutable()
+	marker, err := readCurrentRuntime()
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	installed, err := selectedExecutable(marker)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -50,7 +59,11 @@ func ForwardToInstalled(args []string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if samePath(current, installed) {
+	currentDigest, err := fileSHA256(current)
+	if err != nil {
+		return false, err
+	}
+	if !shouldForward(marker, current, currentDigest, installed) {
 		return false, nil
 	}
 	if err := Launch(installed, args); err != nil {
@@ -139,29 +152,41 @@ func Install(archivePath string) (string, error) {
 }
 
 func CurrentExecutable() (string, error) {
-	root, err := runtimeDirectory()
+	marker, err := readCurrentRuntime()
 	if err != nil {
 		return "", err
 	}
+	return selectedExecutable(marker)
+}
+
+func readCurrentRuntime() (currentRuntime, error) {
+	var marker currentRuntime
 	markerPath, err := currentRuntimePath()
 	if err != nil {
-		return "", err
+		return marker, err
 	}
 	file, err := os.Open(markerPath)
 	if err != nil {
-		return "", err
+		return marker, err
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, maxMarkerBytes+1))
 	if err != nil {
-		return "", fmt.Errorf("read current runtime marker: %w", err)
+		return marker, fmt.Errorf("read current runtime marker: %w", err)
 	}
 	if len(data) > maxMarkerBytes {
-		return "", errors.New("current runtime marker is too large")
+		return marker, errors.New("current runtime marker is too large")
 	}
-	var marker currentRuntime
 	if err := json.Unmarshal(data, &marker); err != nil {
-		return "", fmt.Errorf("decode current runtime marker: %w", err)
+		return marker, fmt.Errorf("decode current runtime marker: %w", err)
+	}
+	return marker, nil
+}
+
+func selectedExecutable(marker currentRuntime) (string, error) {
+	root, err := runtimeDirectory()
+	if err != nil {
+		return "", err
 	}
 	executable, err := filepath.Abs(marker.Executable)
 	if err != nil {
@@ -174,6 +199,22 @@ func CurrentExecutable() (string, error) {
 		return "", os.ErrNotExist
 	}
 	return executable, nil
+}
+
+func shouldForward(
+	marker currentRuntime,
+	current string,
+	currentDigest string,
+	installed string,
+) bool {
+	if samePath(current, installed) {
+		return false
+	}
+	if marker.LauncherExecutable == "" || marker.LauncherSHA256 == "" {
+		return false
+	}
+	return samePath(current, marker.LauncherExecutable) &&
+		strings.EqualFold(currentDigest, marker.LauncherSHA256)
 }
 
 func Launch(executable string, args []string) error {
@@ -195,10 +236,34 @@ func writeCurrentRuntime(executable string, digest string) error {
 	if err := os.MkdirAll(filepath.Dir(markerPath), 0o700); err != nil {
 		return fmt.Errorf("create ARAM configuration directory: %w", err)
 	}
+	var existing currentRuntime
+	if marker, readErr := readCurrentRuntime(); readErr == nil {
+		existing = marker
+	}
+	launcher, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate launcher executable: %w", err)
+	}
+	launcher, err = filepath.Abs(launcher)
+	if err != nil {
+		return fmt.Errorf("resolve launcher executable: %w", err)
+	}
+	launcherDigest, err := fileSHA256(launcher)
+	if err != nil {
+		return fmt.Errorf("hash launcher executable: %w", err)
+	}
+	if existing.LauncherExecutable != "" &&
+		existing.LauncherSHA256 != "" &&
+		!samePath(launcher, existing.LauncherExecutable) {
+		launcher = existing.LauncherExecutable
+		launcherDigest = existing.LauncherSHA256
+	}
 	data, err := json.MarshalIndent(currentRuntime{
-		Executable:    executable,
-		ArchiveSHA256: digest,
-		InstalledAt:   time.Now().UTC(),
+		Executable:         executable,
+		ArchiveSHA256:      digest,
+		LauncherExecutable: launcher,
+		LauncherSHA256:     launcherDigest,
+		InstalledAt:        time.Now().UTC(),
 	}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode current runtime marker: %w", err)
