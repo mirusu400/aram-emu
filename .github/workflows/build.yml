@@ -334,15 +334,15 @@ jobs:
             native_library="$(mktemp)"
             unzip -p "${apk}" "${library}" > "${native_library}"
             readelf -W -l "${native_library}" | python3 -c '
-            import sys
-            alignments = [
-                int(line.split()[-1], 16)
-                for line in sys.stdin
-                if line.lstrip().startswith("LOAD")
-            ]
-            if not alignments or min(alignments) < 0x4000:
-                raise SystemExit("native LOAD segments are not 16 KB-aligned")
-            '
+          import sys
+          alignments = [
+              int(line.split()[-1], 16)
+              for line in sys.stdin
+              if line.lstrip().startswith("LOAD")
+          ]
+          if not alignments or min(alignments) < 0x4000:
+              raise SystemExit("native LOAD segments are not 16 KB-aligned")
+          '
             rm -f "${native_library}"
           done
           unzip -p "${apk}" assets/BUILD-INFO.txt | grep -Fx \
