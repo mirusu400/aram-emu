@@ -8,7 +8,7 @@ CPU backend availability are separate concerns.
 | Windows amd64 | Ebitengine | Desktop executable and native picker | Pure Go; native backend optional | Local executable starts; CI required |
 | Linux amd64 | Ebitengine | Desktop app, X11/Wayland packaging | Pure Go; native backend optional | Headless CI with Xvfb |
 | macOS amd64/arm64 | Ebitengine | Signed/notarized app later | Pure Go; native backend optional | CI build/test before packaging |
-| Android arm64 | Ebitengine mobile AAR | Native Activity, SAF, lifecycle, signing | Portable backend required | AAR builds; native host remains |
+| Android arm64 | Ebitengine mobile AAR | Native Activity, SAF, lifecycle, signing | Portable backend required | Debug-signed Nightly APK builds in CI |
 | iOS arm64 | Ebitengine XCFramework | UIKit host, document picker, signing | Portable backend required | Designed, not yet bound in CI |
 | WebAssembly | Optional later | Browser host | Interpreter only | Exploratory, not a release target |
 
@@ -24,8 +24,8 @@ native dialogs and window behavior. Packaging remains platform-specific:
 
 ## Android
 
-The frontend exports an Ebitengine mobile game into an AAR. A native Android
-host owns:
+The integrated product exports its Ebitengine mobile game into an AAR. The
+native Android host in `android/` owns:
 
 - Activity and view lifecycle;
 - Storage Access Framework document and directory selection;
@@ -33,8 +33,16 @@ host owns:
 - audio focus, controller/touch setup, intents, and background policy;
 - APK/AAB packaging, signing, and store metadata.
 
-The local foundation build has produced the AAR. That proves the shared Go UI
-cross-compiles; it does not yet prove a complete installable Android app.
+CI builds and lints an arm64, debug-signed Nightly APK, verifies its launchable
+Activity, JNI ABI, and embedded component revisions, and publishes it with the
+rolling product Nightly. The Activity uses SAF to copy a selected provider
+document into private storage before passing a seekable path to the ordinary
+integration backend. It also forwards View/Send intents, lifecycle state,
+audio focus, touch, keyboard, and gamepad events.
+
+This establishes an installable development product, not a store release.
+Device instrumentation, production signing, update delivery, accessibility,
+and broader Android-device validation remain release gates.
 
 ## iOS
 

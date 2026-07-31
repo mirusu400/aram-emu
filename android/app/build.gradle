@@ -1,0 +1,64 @@
+plugins {
+    id "com.android.application"
+}
+
+def aramVersionCode = (System.getenv("ARAM_VERSION_CODE") ?: "1").toInteger()
+def aramVersionName = System.getenv("ARAM_VERSION_NAME") ?: "dev"
+def aramAbis = (System.getenv("ARAM_ANDROID_ABIS") ?: "arm64-v8a").split(",")
+
+android {
+    namespace "io.github.mirusu400.aram.app"
+    compileSdk 36
+
+    signingConfigs {
+        nightly {
+            storeFile file("../nightly.keystore")
+            storePassword "aram-nightly"
+            keyAlias "aram-nightly"
+            keyPassword "aram-nightly"
+        }
+    }
+
+    defaultConfig {
+        applicationId "io.github.mirusu400.aram"
+        minSdk 23
+        targetSdk 36
+        versionCode aramVersionCode
+        versionName aramVersionName
+
+        ndk {
+            aramAbis.each { abiFilters it }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".nightly"
+            versionNameSuffix "-nightly"
+            signingConfig signingConfigs.nightly
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError true
+        checkReleaseBuilds false
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+}
+
+dependencies {
+    implementation files("libs/aram.aar")
+}

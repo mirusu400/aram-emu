@@ -10,7 +10,7 @@ only when its exit gate is reproducible; a visual demo is not sufficient.
 | 2. WIPI runtime breadth | planned | Versioned API matrix, graphics/input/audio/storage/timer coverage, conformance fixtures |
 | 3. Carrier and device profiles | planned | KTF, SKT, and LGT evidence separated; Samsung and other OEM quirks profile-driven |
 | 4. Emulator product features | planned | States, replay, speed controls, controllers, screenshots, cheats, patches, debugger |
-| 5. Android product | planned | Native host installs, SAF open works, lifecycle/audio/input tests pass on arm64 device |
+| 5. Android product | active | Native host installs, SAF open works, lifecycle/audio/input tests pass on arm64 device |
 | 6. Full-system firmware | research | Reproducible user-supplied Magic Hole snapshot/AMSS boot milestone with documented devices |
 | 7. Compatibility and releases | planned | Hash-keyed automated reports and reproducible signed desktop/mobile release candidates |
 
@@ -71,9 +71,9 @@ versioned, and corrupted inputs/states fail without damaging user data.
 
 ## Phase 5 - Android and later iOS
 
-- Create a native Android host around the verified AAR.
-- Implement SAF documents/directories, URI persistence, intents, lifecycle,
-  audio focus, controller input, touch overlay, settings, and crash reporting.
+- Maintain the native Android host around the integrated product AAR.
+- Validate the implemented SAF document import, intents, lifecycle, audio
+  focus, controller input, and shared touch UI across supported devices.
 - Add instrumented device tests and reproducible APK/AAB packaging.
 - Repeat the native-host pattern for an iOS XCFramework after the portable CPU
   path and Android lifecycle are stable.

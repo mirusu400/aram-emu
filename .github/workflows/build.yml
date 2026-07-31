@@ -201,6 +201,139 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  android:
+    name: Android arm64 APK
+    needs:
+      - resolve-components
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out product
+        uses: actions/checkout@v6
+        with:
+          path: aram-emu
+          persist-credentials: false
+
+      - name: Check out core
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-core
+          ref: ${{ needs.resolve-components.outputs.core_sha }}
+          path: aram-core
+          persist-credentials: false
+
+      - name: Check out frontend
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-frontend
+          ref: ${{ needs.resolve-components.outputs.frontend_sha }}
+          path: aram-frontend
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: aram-emu/go.mod
+          cache-dependency-path: |
+            aram-emu/go.sum
+            aram-emu/go.work.sum
+            aram-core/go.sum
+            aram-frontend/go.sum
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.14.1"
+          cache-provider: basic
+
+      - name: Install 16 KB-compatible Android NDK
+        run: sdkmanager "ndk;28.2.13676358"
+
+      - name: Build integrated Android AAR
+        working-directory: aram-emu
+        shell: bash
+        run: |
+          go install \
+            github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@v2.9.9
+          mkdir -p android/app/libs android/app/src/main/assets
+          ebitenmobile bind \
+            -target android/arm64 \
+            -androidapi 23 \
+            -trimpath \
+            -ldflags="-s -w" \
+            -javapkg io.github.mirusu400.aram \
+            -o android/app/libs/aram.aar \
+            ./mobile
+          {
+            echo "aram-emu=${GITHUB_SHA}"
+            echo "aram-core=${{ needs.resolve-components.outputs.core_sha }}"
+            echo "aram-frontend=${{ needs.resolve-components.outputs.frontend_sha }}"
+          } > android/app/src/main/assets/BUILD-INFO.txt
+
+      - name: Build and lint Android Nightly APK
+        working-directory: aram-emu
+        env:
+          ARAM_VERSION_CODE: ${{ github.run_number }}
+          ARAM_VERSION_NAME: ${{ github.sha }}
+        run: >-
+          gradle --no-daemon --stacktrace -p android
+          :app:lintDebug :app:assembleDebug
+
+      - name: Verify Android package
+        working-directory: aram-emu
+        shell: bash
+        run: |
+          apk="android/app/build/outputs/apk/debug/app-debug.apk"
+          test -f "${apk}"
+          unzip -l "${apk}" | grep -F "lib/arm64-v8a/libgojni.so"
+          test "$(unzip -Z1 "${apk}" | grep -c '/libgojni.so$')" -eq 1
+          native_library="$(mktemp)"
+          unzip -p "${apk}" lib/arm64-v8a/libgojni.so > "${native_library}"
+          readelf -W -l "${native_library}" | python3 -c '
+          import sys
+          alignments = [
+              int(line.split()[-1], 16)
+              for line in sys.stdin
+              if line.lstrip().startswith("LOAD")
+          ]
+          if not alignments or min(alignments) < 0x4000:
+              raise SystemExit("native LOAD segments are not 16 KB-aligned")
+          '
+          rm -f "${native_library}"
+          unzip -p "${apk}" assets/BUILD-INFO.txt | grep -Fx \
+            "aram-emu=${GITHUB_SHA}"
+          aapt="$(find "${ANDROID_HOME}/build-tools" -name aapt -type f |
+            sort -V | tail -n 1)"
+          test -x "${aapt}"
+          "${aapt}" dump badging "${apk}" > android/app/build/apk-badging.txt
+          grep -F "package: name='io.github.mirusu400.aram.nightly'" \
+            android/app/build/apk-badging.txt
+          grep -F "launchable-activity: name='io.github.mirusu400.aram.app.MainActivity'" \
+            android/app/build/apk-badging.txt
+          apksigner="$(find "${ANDROID_HOME}/build-tools" -name apksigner -type f |
+            sort -V | tail -n 1)"
+          test -x "${apksigner}"
+          "${apksigner}" verify --print-certs "${apk}" \
+            > android/app/build/apk-signing.txt
+          grep -F \
+            "Signer #1 certificate SHA-256 digest: f603453c7584dfc3cae6b1fb4c756771d17d56127d381b09b41862b13a3f6cc8" \
+            android/app/build/apk-signing.txt
+          mkdir -p dist
+          cp "${apk}" dist/aram-android-arm64.apk
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: aram-android-arm64
+          path: aram-emu/dist/aram-android-arm64.apk
+          if-no-files-found: error
+          retention-days: 14
+
   publish-nightly:
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -208,6 +341,7 @@ jobs:
     needs:
       - resolve-components
       - desktop
+      - android
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -226,10 +360,12 @@ jobs:
           test -f aram-windows-amd64.zip
           test -f aram-linux-amd64.tar.gz
           test -f aram-macos-arm64.tar.gz
+          test -f aram-android-arm64.apk
           sha256sum \
             aram-windows-amd64.zip \
             aram-linux-amd64.tar.gz \
             aram-macos-arm64.tar.gz \
+            aram-android-arm64.apk \
             > SHA256SUMS.txt
       - name: Publish rolling Nightly release
         env:

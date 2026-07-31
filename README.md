@@ -46,10 +46,11 @@ decide which hosts ARAM can support.
 Current foundation status:
 
 - `aram-core` tests natively and cross-compiles for Android/arm64;
-- `aram-frontend` tests on desktop, builds a Windows executable, and binds to
-  an Android AAR;
+- `aram-frontend` tests on desktop and supplies the shared mobile UI binding;
 - `aram-emu` now owns the adapter and desktop product entry point that connect
   the frontend's ordinary open request to the core application factory;
+- `aram-emu` also owns an installable Android arm64 Nightly host with SAF
+  document import, lifecycle, audio-focus, touch, and gamepad integration;
 - synthetic EADS and the authorized Magic Hole reference both reach and
   execute their mapped native entry points; the profiled reference completes
   bootstrap, setup, start, preload, and its first visible frame deterministically;
@@ -100,13 +101,16 @@ Corpus discovery, caching, comparison, and reports belong to the sibling
 ## Continuous builds
 
 Every push and pull request runs the desktop tests and builds ARAM on Windows
-x64, Linux x64, and macOS arm64. Download the compressed `aram-*` build from
-the workflow run's **Artifacts** section. CI artifacts are retained for 14
-days. A successful push to `main` also updates the rolling `nightly`
-prerelease with the exact same three archives and `SHA256SUMS.txt`. The Nightly
-name and release notes identify the exact product, core, and frontend
-revisions. Publishing a non-nightly GitHub release builds the tagged product
-and attaches its archives and checksums to that release.
+x64, Linux x64, and macOS arm64. It also binds the integrated mobile product,
+lints the native Android host, and builds a debug-signed arm64 APK. Download
+the compressed `aram-*` desktop build or `aram-android-arm64.apk` from the
+workflow run's **Artifacts** section. CI artifacts are retained for 14 days. A
+successful push to `main` also updates the rolling `nightly` prerelease with
+the desktop archives, Android APK, and `SHA256SUMS.txt`. The Nightly name and
+release notes identify the exact product, core, and frontend revisions.
+Publishing a non-nightly GitHub release builds the tagged desktop product and
+attaches its archives and checksums to that release; production Android
+signing remains a separate Stable-release gate.
 
 The product workflow checks out the exact revisions recorded in
 `product-components.json`, so the local `go.work` and `replace` directives
@@ -126,6 +130,7 @@ testing. Each archive contains `BUILD-INFO.txt` with the exact revisions used.
 - [Architecture and dependency direction](docs/architecture.md)
 - [Core/frontend integration contract](docs/integration.md)
 - [Cross-platform strategy](docs/platforms.md)
+- [Android host and local APK build](android/README.md)
 - [Implementation roadmap and release gates](docs/roadmap.md)
 - [Frontend product requirements](docs/frontend.md)
 - [Compatibility evidence policy](docs/compatibility.md)
