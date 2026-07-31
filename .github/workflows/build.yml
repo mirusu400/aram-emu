@@ -165,9 +165,25 @@ jobs:
       - name: Build product and probe
         working-directory: aram-emu
         shell: bash
+        env:
+          CORE_SHA: ${{ needs.resolve-components.outputs.core_sha }}
+          FRONTEND_SHA: ${{ needs.resolve-components.outputs.frontend_sha }}
         run: |
           mkdir -p build/package dist
-          go build -trimpath -ldflags="-s -w" \
+          emu_short="${GITHUB_SHA::7}"
+          core_short="${CORE_SHA::7}"
+          frontend_short="${FRONTEND_SHA::7}"
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            build_version="${GITHUB_REF_NAME}"
+          elif [[ ("${GITHUB_EVENT_NAME}" == "push" ||
+                   "${GITHUB_EVENT_NAME}" == "workflow_dispatch") &&
+                  "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            build_version="Nightly-${emu_short}-c${core_short}-f${frontend_short}"
+          else
+            build_version="Development-${emu_short}-c${core_short}-f${frontend_short}"
+          fi
+          go build -trimpath \
+            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${build_version}" \
             -o "build/package/${{ matrix.executable }}" ./cmd/aram
           go build -trimpath -ldflags="-s -w" \
             -o "build/package/${{ matrix.probe }}" ./cmd/aram-probe
@@ -263,15 +279,30 @@ jobs:
       - name: Build integrated Android AAR
         working-directory: aram-emu
         shell: bash
+        env:
+          CORE_SHA: ${{ needs.resolve-components.outputs.core_sha }}
+          FRONTEND_SHA: ${{ needs.resolve-components.outputs.frontend_sha }}
         run: |
           go install \
             github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@v2.9.9
           mkdir -p android/app/libs android/app/src/main/assets
+          emu_short="${GITHUB_SHA::7}"
+          core_short="${CORE_SHA::7}"
+          frontend_short="${FRONTEND_SHA::7}"
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            build_version="${GITHUB_REF_NAME}"
+          elif [[ ("${GITHUB_EVENT_NAME}" == "push" ||
+                   "${GITHUB_EVENT_NAME}" == "workflow_dispatch") &&
+                  "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            build_version="Nightly-${emu_short}-c${core_short}-f${frontend_short}"
+          else
+            build_version="Development-${emu_short}-c${core_short}-f${frontend_short}"
+          fi
           ebitenmobile bind \
             -target android/arm64 \
             -androidapi 23 \
             -trimpath \
-            -ldflags="-s -w" \
+            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${build_version}" \
             -javapkg io.github.mirusu400.aram \
             -o android/app/libs/aram.aar \
             ./mobile

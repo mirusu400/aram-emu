@@ -83,6 +83,8 @@ ARAM opens the game picker automatically.
 The Updates page uses the same installation path: downloading the ARAM product
 immediately installs and restarts it, reopening the currently loaded input.
 Standalone core-tool and frontend archives are not installed into the product.
+The product build embeds its Stable tag or combined Nightly product/core/frontend
+revision so the running version is visible in Updates and About ARAM.
 
 The bootstrap never overwrites its running executable. It keeps versioned,
 content-addressed runtimes under `ARAM/runtime/versions` and records the active
