@@ -8,13 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       core_ref:
-        description: aram-core branch, tag, or commit to integrate
+        description: aram-core override (blank uses product-components.json)
         required: false
-        default: e9e1285a54ceb8d7fea11b016118e90862ce7f67
       frontend_ref:
-        description: aram-frontend branch, tag, or commit to integrate
+        description: aram-frontend override (blank uses product-components.json)
         required: false
-        default: b5d4854d6eaf3d7a858c56e35b89b513fb0441b5
   release:
     types:
       - published
@@ -22,17 +20,68 @@ on:
 permissions:
   contents: read
 
-env:
-  ARAM_CORE_REF: e9e1285a54ceb8d7fea11b016118e90862ce7f67
-  ARAM_FRONTEND_REF: b5d4854d6eaf3d7a858c56e35b89b513fb0441b5
-
 concurrency:
   group: build-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  resolve-components:
+    name: Resolve product components
+    runs-on: ubuntu-latest
+    outputs:
+      core_sha: ${{ steps.revisions.outputs.core_sha }}
+      frontend_sha: ${{ steps.revisions.outputs.frontend_sha }}
+    steps:
+      - name: Check out product manifest
+        uses: actions/checkout@v6
+        with:
+          path: aram-emu
+          persist-credentials: false
+
+      - name: Select requested component refs
+        id: requested
+        working-directory: aram-emu
+        shell: bash
+        env:
+          CORE_REF_OVERRIDE: ${{ inputs.core_ref }}
+          FRONTEND_REF_OVERRIDE: ${{ inputs.frontend_ref }}
+        run: |
+          core_ref="${CORE_REF_OVERRIDE:-$(jq -r '.core' product-components.json)}"
+          frontend_ref="${FRONTEND_REF_OVERRIDE:-$(jq -r '.frontend' product-components.json)}"
+          test -n "${core_ref}"
+          test "${core_ref}" != "null"
+          test -n "${frontend_ref}"
+          test "${frontend_ref}" != "null"
+          echo "core_ref=${core_ref}" >> "${GITHUB_OUTPUT}"
+          echo "frontend_ref=${frontend_ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out core
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-core
+          ref: ${{ steps.requested.outputs.core_ref }}
+          path: aram-core
+          persist-credentials: false
+
+      - name: Check out frontend
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-frontend
+          ref: ${{ steps.requested.outputs.frontend_ref }}
+          path: aram-frontend
+          persist-credentials: false
+
+      - name: Record exact component revisions
+        id: revisions
+        shell: bash
+        run: |
+          echo "core_sha=$(git -C aram-core rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+          echo "frontend_sha=$(git -C aram-frontend rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
   desktop:
     name: ${{ matrix.name }}
+    needs:
+      - resolve-components
     strategy:
       fail-fast: false
       matrix:
@@ -68,7 +117,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: mirusu400/aram-core
-          ref: ${{ inputs.core_ref || env.ARAM_CORE_REF }}
+          ref: ${{ needs.resolve-components.outputs.core_sha }}
           path: aram-core
           persist-credentials: false
 
@@ -76,7 +125,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: mirusu400/aram-frontend
-          ref: ${{ inputs.frontend_ref || env.ARAM_FRONTEND_REF }}
+          ref: ${{ needs.resolve-components.outputs.frontend_sha }}
           path: aram-frontend
           persist-credentials: false
 
@@ -125,8 +174,8 @@ jobs:
           cp README.md build/package/
           {
             echo "aram-emu=${GITHUB_SHA}"
-            echo "aram-core=$(git -C ../aram-core rev-parse HEAD)"
-            echo "aram-frontend=$(git -C ../aram-frontend rev-parse HEAD)"
+            echo "aram-core=${{ needs.resolve-components.outputs.core_sha }}"
+            echo "aram-frontend=${{ needs.resolve-components.outputs.frontend_sha }}"
           } > build/package/BUILD-INFO.txt
 
       - name: Package Windows build
@@ -153,8 +202,11 @@ jobs:
           retention-days: 14
 
   publish-nightly:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     needs:
+      - resolve-components
       - desktop
     runs-on: ubuntu-latest
     permissions:
@@ -182,11 +234,19 @@ jobs:
       - name: Publish rolling Nightly release
         env:
           GH_TOKEN: ${{ github.token }}
+          CORE_SHA: ${{ needs.resolve-components.outputs.core_sha }}
+          FRONTEND_SHA: ${{ needs.resolve-components.outputs.frontend_sha }}
         shell: bash
         run: |
-          short_sha="${GITHUB_SHA::7}"
-          title="Nightly ${short_sha}"
-          notes="Automated main-branch build from ${GITHUB_SHA}.
+          emu_short="${GITHUB_SHA::7}"
+          core_short="${CORE_SHA::7}"
+          frontend_short="${FRONTEND_SHA::7}"
+          title="Nightly ${emu_short}-c${core_short}-f${frontend_short}"
+          notes="Automated integrated ARAM build.
+
+          aram-emu: ${GITHUB_SHA}
+          aram-core: ${CORE_SHA}
+          aram-frontend: ${FRONTEND_SHA}
 
           Source: https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}
           Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -211,6 +271,7 @@ jobs:
   publish-stable:
     if: github.event_name == 'release' && github.event.release.tag_name != 'nightly'
     needs:
+      - resolve-components
       - desktop
     runs-on: ubuntu-latest
     permissions:

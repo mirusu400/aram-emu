@@ -103,16 +103,22 @@ Every push and pull request runs the desktop tests and builds ARAM on Windows
 x64, Linux x64, and macOS arm64. Download the compressed `aram-*` build from
 the workflow run's **Artifacts** section. CI artifacts are retained for 14
 days. A successful push to `main` also updates the rolling `nightly`
-prerelease with the exact same three archives and `SHA256SUMS.txt`. The release
-notes link back to the source commit and workflow run. Publishing a
-non-nightly GitHub release builds the tagged product and attaches its archives
-and checksums to that release.
+prerelease with the exact same three archives and `SHA256SUMS.txt`. The Nightly
+name and release notes identify the exact product, core, and frontend
+revisions. Publishing a non-nightly GitHub release builds the tagged product
+and attaches its archives and checksums to that release.
 
-The product workflow checks out pinned, known-compatible revisions of the
-public `aram-core` and `aram-frontend` repositories next to this repository,
-so the local `go.work` and `replace` directives resolve reproducibly. A manual
-workflow run may override either dependency ref for integration testing. Each
-archive contains `BUILD-INFO.txt` with the exact revisions used.
+The product workflow checks out the exact revisions recorded in
+`product-components.json`, so the local `go.work` and `replace` directives
+resolve reproducibly. A lightweight hourly workflow watches the successfully
+published `nightly` revisions from the public `aram-core` and `aram-frontend`
+repositories. When either revision changes, it commits the updated component
+lock and dispatches a fresh integrated ARAM Nightly. This means component
+Nightlies gate the product build; their standalone archives remain developer
+downloads and are not dynamically loaded into an installed ARAM process.
+
+A manual workflow run may override either dependency ref for integration
+testing. Each archive contains `BUILD-INFO.txt` with the exact revisions used.
 
 ## Project documents
 
