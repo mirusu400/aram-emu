@@ -57,6 +57,8 @@ Current foundation status:
   for synthetic gates and authorized commercial-corpus loop engineering;
 - conventional File, Emulation, View, Tools, and Help commands remain in the
   frontend even when the backend does not implement them yet;
+- users can export one checksummed debug ZIP with redacted frontend logs and
+  bounded core CPU/runtime diagnostics for issue triage;
 - broad native instruction and WIPI/OEM service coverage, multi-title
   first-frame compatibility, production-grade state workflows, cheats, and
   firmware boot remain roadmap work, not completed compatibility claims.

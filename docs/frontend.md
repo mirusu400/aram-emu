@@ -15,7 +15,7 @@ the product-level acceptance contract used by integration and releases.
 - Input/audio: keyboard, gamepad, touch, per-title profiles, hotplug, volume,
   mute, latency, and output-device selection.
 - Tools: cheats, memory search, patches, debugger, trace, logs, title
-  properties, and compatibility reporting.
+  properties, compatibility reporting, and an attachable debug bundle.
 - Help: documentation, issue reporting, build information, and about.
 
 Unavailable operations stay visible and disabled with an explanation. No title
@@ -40,3 +40,16 @@ screen.
   remain consistent.
 - Settings and recent items fail safely when paths or permissions expire.
 - Mobile UI never assumes an Android content URI is a filesystem path.
+
+## Debug export
+
+`Tools > Export Debug Bundle...` (`Ctrl+Shift+D`) always exports the
+frontend event log and manifest, even when no input is loaded or backend
+diagnostic collection fails. The integrated adapter adds `core.json` and
+`core.log` with input identity, CPU registers, the last execution result,
+guest logs, KTF/WIPI trace tails, and runtime-specific fault context.
+
+The ZIP does not include source bytes, host input paths, guest memory,
+framebuffer pixels, save data, persistence, or proprietary media. Build and
+host metadata contain no hostname. Files are size-bounded and checksummed in
+the manifest before users attach the bundle to an issue.

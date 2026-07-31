@@ -56,9 +56,16 @@ WIPI or multi-title compatibility.
 | Screenshot | Capture guest-native framebuffer without UI scaling |
 | Cheat, patch, memory search | Use checked memory/debugger services |
 | Compatibility report | Record hashes, profile, versions, replay, and outcome |
+| Debug export | Provide bounded core metadata and log/trace tails without guest data |
 
 Frontend commands remain visible when a backend does not support an operation;
 the adapter reports capability and reason.
+
+The optional `frontend.DebugExportBackend` contract returns named diagnostic
+files. The frontend owns ZIP creation, path redaction, attachment validation,
+checksums, and partial-bundle behavior. The integration adapter serializes
+core operations while taking a diagnostic snapshot so CPU registers and
+runtime trace counters describe one consistent execution boundary.
 
 ## Development workflow
 
