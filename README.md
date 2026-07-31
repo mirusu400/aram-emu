@@ -70,6 +70,20 @@ go run ./cmd/aram
 go run ./cmd/aram path\to\authorized-input.dat
 ```
 
+Packaged desktop builds act as their own bootstrap. On the first launch,
+choosing Nightly downloads the rolling integrated `aram-emu` Release, verifies
+its GitHub digest, installs it below the platform ARAM configuration directory,
+and restarts into that runtime. The installed archive contains the compatible
+core and frontend revisions recorded in `BUILD-INFO.txt`; they are not dynamic
+plugins. Choosing Stable installs the latest non-prerelease when one exists and
+otherwise continues with the bundled build. After an update-driven restart,
+ARAM opens the game picker automatically.
+
+The bootstrap never overwrites its running executable. It keeps versioned,
+content-addressed runtimes under `ARAM/runtime/versions` and records the active
+one in `ARAM/runtime/current.json`; launching the original downloaded binary
+delegates to that active runtime.
+
 Build or invoke the black-box compatibility probe:
 
 ```powershell
