@@ -321,13 +321,12 @@ jobs:
             android/app/build/apk-badging.txt
           grep -F "launchable-activity: name='io.github.mirusu400.aram.app.MainActivity'" \
             android/app/build/apk-badging.txt
-          apksigner="$(find "${ANDROID_HOME}/build-tools" -name apksigner -type f |
-            sort -V | tail -n 1)"
-          test -x "${apksigner}"
-          "${apksigner}" verify --print-certs "${apk}" \
+          keytool -printcert -jarfile "${apk}" \
             > android/app/build/apk-signing.txt
+          grep -F "Owner: CN=ARAM Nightly, O=ARAM, C=KR" \
+            android/app/build/apk-signing.txt
           grep -F \
-            "Signer #1 certificate SHA-256 digest: f603453c7584dfc3cae6b1fb4c756771d17d56127d381b09b41862b13a3f6cc8" \
+            "SHA256: F6:03:45:3C:75:84:DF:C3:CA:E6:B1:FB:4C:75:67:71:D1:7D:56:12:7D:38:1B:09:B4:18:62:B1:3A:3F:6C:C8" \
             android/app/build/apk-signing.txt
           mkdir -p dist
           cp "${apk}" dist/aram-android-arm64.apk
