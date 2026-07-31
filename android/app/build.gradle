@@ -4,7 +4,7 @@ plugins {
 
 def aramVersionCode = (System.getenv("ARAM_VERSION_CODE") ?: "1").toInteger()
 def aramVersionName = System.getenv("ARAM_VERSION_NAME") ?: "dev"
-def aramAbis = (System.getenv("ARAM_ANDROID_ABIS") ?: "arm64-v8a").split(",")
+def aramAbis = (System.getenv("ARAM_ANDROID_ABIS") ?: "arm64-v8a,x86_64").split(",")
 
 android {
     namespace "io.github.mirusu400.aram.app"

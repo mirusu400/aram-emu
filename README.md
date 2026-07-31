@@ -49,7 +49,7 @@ Current foundation status:
 - `aram-frontend` tests on desktop and supplies the shared mobile UI binding;
 - `aram-emu` now owns the adapter and desktop product entry point that connect
   the frontend's ordinary open request to the core application factory;
-- `aram-emu` also owns an installable Android arm64 Nightly host with SAF
+- `aram-emu` also owns an installable Android arm64/x86_64 Nightly host with SAF
   document import, lifecycle, audio-focus, touch, and gamepad integration;
 - synthetic EADS and the authorized Magic Hole reference both reach and
   execute their mapped native entry points; the profiled reference completes
@@ -104,9 +104,10 @@ Corpus discovery, caching, comparison, and reports belong to the sibling
 
 Every push and pull request runs the desktop tests and builds ARAM on Windows
 x64, Linux x64, and macOS arm64. It also binds the integrated mobile product,
-lints the native Android host, and builds a debug-signed arm64 APK. Download
-the compressed `aram-*` desktop build or `aram-android-arm64.apk` from the
-workflow run's **Artifacts** section. CI artifacts are retained for 14 days. A
+lints the native Android host, and builds a debug-signed universal APK for
+arm64 devices and x86_64 Android Virtual Devices. Download the compressed
+`aram-*` desktop build or `aram-android-universal.apk` from the workflow run's
+**Artifacts** section. CI artifacts are retained for 14 days. A
 successful push to `main` also updates the rolling `nightly` prerelease with
 the desktop archives, Android APK, and `SHA256SUMS.txt`. The Nightly name and
 release notes identify the exact product, core, and frontend revisions.

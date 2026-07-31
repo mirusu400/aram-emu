@@ -218,7 +218,7 @@ jobs:
           retention-days: 14
 
   android:
-    name: Android arm64 APK
+    name: Android universal APK
     needs:
       - resolve-components
     runs-on: ubuntu-latest
@@ -299,7 +299,7 @@ jobs:
             build_version="Development-${emu_short}-c${core_short}-f${frontend_short}"
           fi
           ebitenmobile bind \
-            -target android/arm64 \
+            -target android/arm64,android/amd64 \
             -androidapi 23 \
             -trimpath \
             -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${build_version}" \
@@ -327,21 +327,24 @@ jobs:
         run: |
           apk="android/app/build/outputs/apk/debug/app-debug.apk"
           test -f "${apk}"
-          unzip -l "${apk}" | grep -F "lib/arm64-v8a/libgojni.so"
-          test "$(unzip -Z1 "${apk}" | grep -c '/libgojni.so$')" -eq 1
-          native_library="$(mktemp)"
-          unzip -p "${apk}" lib/arm64-v8a/libgojni.so > "${native_library}"
-          readelf -W -l "${native_library}" | python3 -c '
-          import sys
-          alignments = [
-              int(line.split()[-1], 16)
-              for line in sys.stdin
-              if line.lstrip().startswith("LOAD")
-          ]
-          if not alignments or min(alignments) < 0x4000:
-              raise SystemExit("native LOAD segments are not 16 KB-aligned")
-          '
-          rm -f "${native_library}"
+          test "$(unzip -Z1 "${apk}" | grep -c '/libgojni.so$')" -eq 2
+          for abi in arm64-v8a x86_64; do
+            library="lib/${abi}/libgojni.so"
+            unzip -l "${apk}" | grep -F "${library}"
+            native_library="$(mktemp)"
+            unzip -p "${apk}" "${library}" > "${native_library}"
+            readelf -W -l "${native_library}" | python3 -c '
+            import sys
+            alignments = [
+                int(line.split()[-1], 16)
+                for line in sys.stdin
+                if line.lstrip().startswith("LOAD")
+            ]
+            if not alignments or min(alignments) < 0x4000:
+                raise SystemExit("native LOAD segments are not 16 KB-aligned")
+            '
+            rm -f "${native_library}"
+          done
           unzip -p "${apk}" assets/BUILD-INFO.txt | grep -Fx \
             "aram-emu=${GITHUB_SHA}"
           aapt="$(find "${ANDROID_HOME}/build-tools" -name aapt -type f |
@@ -360,13 +363,22 @@ jobs:
             "SHA256: F6:03:45:3C:75:84:DF:C3:CA:E6:B1:FB:4C:75:67:71:D1:7D:56:12:7D:38:1B:09:B4:18:62:B1:3A:3F:6C:C8" \
             android/app/build/apk-signing.txt
           mkdir -p dist
-          cp "${apk}" dist/aram-android-arm64.apk
+          cp "${apk}" dist/aram-android-universal.apk
+
+      - name: Install and launch on Android 16 (16 KB)
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 36
+          target: google_apis_ps16k
+          arch: x86_64
+          disable-animations: true
+          script: bash aram-emu/scripts/verify-android-emulator.sh aram-emu/dist/aram-android-universal.apk
 
       - name: Upload Android APK
         uses: actions/upload-artifact@v7
         with:
-          name: aram-android-arm64
-          path: aram-emu/dist/aram-android-arm64.apk
+          name: aram-android-universal
+          path: aram-emu/dist/aram-android-universal.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -396,12 +408,12 @@ jobs:
           test -f aram-windows-amd64.zip
           test -f aram-linux-amd64.tar.gz
           test -f aram-macos-arm64.tar.gz
-          test -f aram-android-arm64.apk
+          test -f aram-android-universal.apk
           sha256sum \
             aram-windows-amd64.zip \
             aram-linux-amd64.tar.gz \
             aram-macos-arm64.tar.gz \
-            aram-android-arm64.apk \
+            aram-android-universal.apk \
             > SHA256SUMS.txt
       - name: Publish rolling Nightly release
         env:
@@ -439,6 +451,10 @@ jobs:
           mapfile -t assets < <(find release-assets -type f -print)
           test "${#assets[@]}" -gt 0
           gh release upload nightly "${assets[@]}" --clobber
+          if gh release view nightly --json assets --jq '.assets[].name' |
+              grep -Fxq aram-android-arm64.apk; then
+            gh release delete-asset nightly aram-android-arm64.apk --yes
+          fi
 
   publish-stable:
     if: github.event_name == 'release' && github.event.release.tag_name != 'nightly'

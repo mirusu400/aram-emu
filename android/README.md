@@ -22,7 +22,7 @@ library is compatible with Android devices using 16 KB memory pages.
 ```powershell
 go install github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@v2.9.9
 New-Item -ItemType Directory -Force android/app/libs | Out-Null
-ebitenmobile bind -target android/arm64 -androidapi 23 -trimpath `
+ebitenmobile bind -target android/arm64,android/amd64 -androidapi 23 -trimpath `
   -ldflags="-s -w" -javapkg io.github.mirusu400.aram `
   -o android/app/libs/aram.aar ./mobile
 gradle --no-daemon -p android :app:lintDebug :app:assembleDebug
@@ -31,17 +31,19 @@ gradle --no-daemon -p android :app:lintDebug :app:assembleDebug
 The output is
 `android/app/build/outputs/apk/debug/app-debug.apk`. It is debug-signed and
 uses application ID `io.github.mirusu400.aram.nightly`, so it can be installed
-beside a future store-signed Stable app. CI publishes the same arm64 APK as
-`aram-android-arm64.apk`.
+beside a future store-signed Stable app. CI publishes the same arm64 and x86_64
+APK as `aram-android-universal.apk`, which works on physical arm64 devices and
+the x86_64 Android Virtual Devices commonly used on desktop hosts.
 
 Nightlies use the repository-owned `nightly.keystore` so a newer CI build can
 upgrade an installed Nightly. Its credentials are intentionally public and
 provide continuity, not release authenticity; this key must never sign a
 Stable or store build.
 
-For a local x86_64 emulator smoke test, bind with
-`-target android/amd64` and set `ARAM_ANDROID_ABIS=x86_64` for the Gradle
-invocation. Published Nightlies deliberately contain only arm64-v8a.
+CI installs and launches each Nightly on an Android 16 x86_64 emulator using a
+16 KB page-size system image. For a smaller local arm64-only build, bind with
+`-target android/arm64` and set `ARAM_ANDROID_ABIS=arm64-v8a` for the Gradle
+invocation.
 
 The selected document is copied into the app-private `files/imports`
 directory. ARAM never edits the provider-owned source. Android may grant a
