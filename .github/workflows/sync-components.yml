@@ -6,7 +6,7 @@ on:
     # Poll the successful component Nightly tags at the shortest supported
     # schedule interval; repository_dispatch remains available for an
     # authenticated immediate notification.
-    - cron: "2-59/5 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
   repository_dispatch:
     types:
