@@ -21,7 +21,8 @@ adb shell am start -W -n "${activity}"
 
 pid=""
 for attempt in $(seq 1 10); do
-  pid="$(adb shell pidof "${package}" | tr -d '\r')"
+  pid="$(adb shell pidof "${package}" 2>/dev/null || true)"
+  pid="${pid//$'\r'/}"
   if [[ -n "${pid}" ]]; then
     break
   fi
