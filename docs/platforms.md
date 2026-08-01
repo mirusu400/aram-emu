@@ -5,10 +5,10 @@ CPU backend availability are separate concerns.
 
 | Target | Shared frontend | Host layer | Core baseline | Current gate |
 |---|---|---|---|---|
-| Windows amd64 | Ebitengine | Desktop executable and native picker | Pure Go; native backend optional | Local executable starts; CI required |
+| Windows amd64 | Ebitengine | Icon-bearing executable and native picker | Pure Go; native backend optional | Local executable starts; CI required |
 | Linux amd64 | Ebitengine | Desktop app, X11/Wayland packaging | Pure Go; native backend optional | Headless CI with Xvfb |
-| macOS amd64/arm64 | Ebitengine | Signed/notarized app later | Pure Go; native backend optional | CI build/test before packaging |
-| Android arm64 | Ebitengine mobile AAR | Native Activity, SAF, lifecycle, signing | Portable backend required | Debug-signed Nightly APK builds in CI |
+| macOS amd64/arm64 | Ebitengine | Unsigned app bundle; signing/notarization later | Pure Go; native backend optional | Icon-bearing arm64 app bundles in CI |
+| Android arm64 | Ebitengine mobile AAR | Native Activity, SAF, lifecycle, signing | Portable backend required | Branded debug-signed Nightly APK builds in CI |
 | iOS arm64 | Ebitengine XCFramework | UIKit host, document picker, signing | Portable backend required | Designed, not yet bound in CI |
 | WebAssembly | Optional later | Browser host | Interpreter only | Exploratory, not a release target |
 
@@ -18,9 +18,10 @@ Windows, Linux, and macOS share screen composition, menus, settings, commands,
 keyboard/gamepad mapping, and backend interaction. Build-tagged files provide
 native dialogs and window behavior. Packaging remains platform-specific:
 
-- Windows: executable, installer, associations, drag-and-drop;
+- Windows: icon-bearing executable, installer, associations, drag-and-drop;
 - Linux: AppImage or Flatpak after dependency and sandbox testing;
-- macOS: universal app, entitlements, signing, and notarization.
+- macOS: icon-bearing arm64 app bundle now; universal binaries, entitlements,
+  signing, and notarization later.
 
 ## Android
 

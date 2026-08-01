@@ -71,6 +71,14 @@ go run ./cmd/aram
 go run ./cmd/aram path\to\authorized-input.dat
 ```
 
+To build an icon-bearing Windows executable locally, prepare its resource
+object before the ordinary build:
+
+```powershell
+go generate ./cmd/aram
+go build -trimpath -o ./build/aram.exe ./cmd/aram
+```
+
 Packaged desktop builds act as their own bootstrap. On the first launch,
 choosing Nightly downloads the rolling integrated `aram-emu` Release, verifies
 its GitHub digest, installs it below the platform ARAM configuration directory,
@@ -107,8 +115,13 @@ x64, Linux x64, and macOS arm64. It also binds the integrated mobile product,
 lints the native Android host, and builds a debug-signed universal APK for
 arm64 devices and x86_64 Android Virtual Devices. Download the compressed
 `aram-*` desktop build or `aram-android-universal.apk` from the workflow run's
-**Artifacts** section. CI artifacts are retained for 14 days. A
-successful push to `main` also updates the rolling `nightly` prerelease with
+**Artifacts** section. CI artifacts are retained for 14 days. The Windows
+build embeds the product icon in `aram.exe`, while the macOS archive contains
+an icon-bearing `ARAM.app` plus its update-compatible command-line launcher.
+Android packages density-specific legacy and adaptive launcher icons from the
+same pinned frontend artwork.
+
+A successful push to `main` also updates the rolling `nightly` prerelease with
 the desktop archives, Android APK, and `SHA256SUMS.txt`. The Nightly name and
 release notes identify the exact product, core, and frontend revisions.
 Publishing a non-nightly GitHub release builds the tagged desktop product and

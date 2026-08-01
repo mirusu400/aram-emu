@@ -28,6 +28,11 @@ ebitenmobile bind -target android/arm64,android/amd64 -androidapi 23 -trimpath `
 gradle --no-daemon -p android :app:lintDebug :app:assembleDebug
 ```
 
+The Gradle build derives its density-specific and adaptive launcher icons from
+`../aram-frontend/frontend/assets/icon.png`, the same pinned artwork used by
+the desktop window. Set `ARAM_ICON_SOURCE` to an absolute PNG path only when
+building from a workspace with a different sibling layout.
+
 The output is
 `android/app/build/outputs/apk/debug/app-debug.apk`. It is debug-signed and
 uses application ID `io.github.mirusu400.aram.nightly`, so it can be installed

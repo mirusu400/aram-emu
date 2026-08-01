@@ -5,6 +5,12 @@ plugins {
 def aramVersionCode = (System.getenv("ARAM_VERSION_CODE") ?: "1").toInteger()
 def aramVersionName = System.getenv("ARAM_VERSION_NAME") ?: "dev"
 def aramAbis = (System.getenv("ARAM_ANDROID_ABIS") ?: "arm64-v8a,x86_64").split(",")
+def aramEmuRoot = rootProject.projectDir.parentFile
+def configuredAramIcon = System.getenv("ARAM_ICON_SOURCE")
+def aramIconSource = configuredAramIcon
+    ? rootProject.file(configuredAramIcon)
+    : new File(aramEmuRoot.parentFile, "aram-frontend/frontend/assets/icon.png")
+def aramGeneratedIconRes = layout.buildDirectory.dir("generated/aram-icons/res")
 
 android {
     namespace "io.github.mirusu400.aram.app"
@@ -47,6 +53,12 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    sourceSets {
+        main {
+            res.srcDir aramGeneratedIconRes.get().asFile
+        }
+    }
+
     lint {
         abortOnError true
         checkReleaseBuilds false
@@ -57,6 +69,27 @@ android {
             useLegacyPackaging true
         }
     }
+}
+
+def generateAramIcons = tasks.register("generateAramIcons", Exec) {
+    workingDir aramEmuRoot
+    commandLine(
+        "go", "run", "./cmd/aram-iconpack",
+        "-source", aramIconSource.absolutePath,
+        "-android-res", aramGeneratedIconRes.get().asFile.absolutePath
+    )
+    inputs.file aramIconSource
+    inputs.files fileTree(new File(aramEmuRoot, "cmd/aram-iconpack")) {
+        include "**/*.go"
+    }
+    inputs.files fileTree(new File(aramEmuRoot, "internal/appicon")) {
+        include "**/*.go"
+    }
+    outputs.dir aramGeneratedIconRes
+}
+
+tasks.named("preBuild").configure {
+    dependsOn generateAramIcons
 }
 
 dependencies {
