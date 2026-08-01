@@ -45,10 +45,8 @@ upgrade an installed Nightly. Its credentials are intentionally public and
 provide continuity, not release authenticity; this key must never sign a
 Stable or store build.
 
-CI installs and launches each Nightly on an Android 16 x86_64 emulator using a
-16 KB page-size system image. For a smaller local arm64-only build, bind with
-`-target android/arm64` and set `ARAM_ANDROID_ABIS=arm64-v8a` for the Gradle
-invocation.
+For a smaller local arm64-only build, bind with `-target android/arm64` and set
+`ARAM_ANDROID_ABIS=arm64-v8a` for the Gradle invocation.
 
 The selected document is copied into the app-private `files/imports`
 directory. ARAM never edits the provider-owned source. Android may grant a
