@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"testing"
@@ -66,5 +67,26 @@ func TestClassifyErrorPreservesActionableCompatibilityStatus(t *testing.T) {
 					status, level, test.wantStatus, test.wantLevel)
 			}
 		})
+	}
+}
+
+func TestProbeDeadlineAfterGuestProgressIsAlive(t *testing.T) {
+	result := probeResult{
+		State:             frontend.StatePaused,
+		TotalInstructions: 1,
+	}
+	if !probeDeadlineReachedAfterProgress(context.DeadlineExceeded, result) {
+		t.Fatal("deadline after guest progress was not classified as alive")
+	}
+
+	result.TotalInstructions = 0
+	if probeDeadlineReachedAfterProgress(context.DeadlineExceeded, result) {
+		t.Fatal("deadline without guest progress was classified as alive")
+	}
+
+	result.TotalInstructions = 1
+	result.State = frontend.StateFaulted
+	if probeDeadlineReachedAfterProgress(context.DeadlineExceeded, result) {
+		t.Fatal("faulted guest was classified as alive")
 	}
 }

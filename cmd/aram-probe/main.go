@@ -179,6 +179,11 @@ func run() int {
 		err = runProbeSlice(ctx, backend, &result, slice == 0)
 		diagnostics := backend.Diagnostics()
 		if err != nil {
+			if probeDeadlineReachedAfterProgress(err, result) {
+				result.Status = "ok_alive"
+				result.Detail = ""
+				break
+			}
 			result.Status, _, result.ErrorKind = classifyError(err, result.Format)
 			result.Detail = err.Error()
 			break
@@ -312,6 +317,15 @@ func splitControls(value string) []string {
 		}
 	}
 	return controls
+}
+
+func probeDeadlineReachedAfterProgress(err error, result probeResult) bool {
+	if !errors.Is(err, context.DeadlineExceeded) ||
+		result.TotalInstructions == 0 {
+		return false
+	}
+	return result.State == frontend.StateRunning ||
+		result.State == frontend.StatePaused
 }
 
 func runProbeSlice(
