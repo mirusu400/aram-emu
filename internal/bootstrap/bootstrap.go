@@ -219,9 +219,7 @@ func shouldForward(
 
 func Launch(executable string, args []string) error {
 	command := exec.Command(executable, args...)
-	command.Stdin = os.Stdin
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
+	configureLaunchCommand(command)
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("launch installed ARAM runtime: %w", err)
 	}
