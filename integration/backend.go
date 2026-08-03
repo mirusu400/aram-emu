@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/mirusu400/aram-core/application"
+	"github.com/mirusu400/aram-core/cheat"
 	aramcore "github.com/mirusu400/aram-core/core"
 	"github.com/mirusu400/aram-core/cpu"
 	"github.com/mirusu400/aram-core/loader"
@@ -41,6 +42,12 @@ type Backend struct {
 	runRequested  bool
 	lastFrameHash uint64
 	frameSequence uint64
+
+	cheatStore         *cheatCatalogStore
+	cheats             *cheat.Library
+	cheatUnavailable   string
+	cheatImported      bool
+	cheatCatalogSource string
 }
 
 func NewBackend(factory aramcore.Factory) *Backend {
@@ -50,7 +57,7 @@ func NewBackend(factory aramcore.Factory) *Backend {
 		defaultFactory.KTFRunBudget = application.DefaultKTFHandsetRunBudget
 		factory = defaultFactory
 	}
-	return &Backend{factory: factory}
+	return &Backend{factory: factory, cheatStore: newCheatCatalogStore()}
 }
 
 func (backend *Backend) BackendName() string {
@@ -119,6 +126,9 @@ func (backend *Backend) OpenWithProgress(
 		info.ProfileID = imageInfo.ProfileID
 		source.ProfileID = imageInfo.ProfileID
 	}
+	// Wrapping happens before the machine is published so every later command
+	// goes through the wrapper that serializes cheats with guest execution.
+	machine, library, cheatUnavailable := attachCheats(machine)
 
 	backend.mu.Lock()
 	oldMachine := backend.machine
@@ -130,6 +140,10 @@ func (backend *Backend) OpenWithProgress(
 	backend.runRequested = false
 	backend.lastFrameHash = 0
 	backend.frameSequence = 0
+	backend.cheats = library
+	backend.cheatUnavailable = cheatUnavailable
+	backend.cheatImported = false
+	backend.cheatCatalogSource = ""
 	backend.mu.Unlock()
 
 	if oldMachine != nil {
@@ -427,7 +441,7 @@ func (backend *Backend) DrainAudio() frontend.AudioChunk {
 }
 
 func (backend *Backend) ToolSnapshot(
-	_ context.Context,
+	ctx context.Context,
 	kind frontend.ToolKind,
 ) (frontend.ToolSnapshot, error) {
 	switch kind {
@@ -446,6 +460,8 @@ func (backend *Backend) ToolSnapshot(
 				"Core source: " + source.Path,
 			},
 		}, nil
+	case frontend.ToolCheats:
+		return backend.cheatSnapshot(ctx, false, "")
 	case frontend.ToolDebugger:
 		machine := backend.currentMachine()
 		if machine == nil {
@@ -458,7 +474,7 @@ func (backend *Backend) ToolSnapshot(
 			"CPU backend: portable interpreter",
 			"State: " + machine.State().String(),
 		}
-		if provider, ok := machine.(interface {
+		if provider, ok := unwrapMachine(machine).(interface {
 			ImageInfo() application.ImageInfo
 		}); ok {
 			info := provider.ImageInfo()
@@ -479,6 +495,21 @@ func (backend *Backend) ToolSnapshot(
 	}
 }
 
+func (backend *Backend) ExecuteToolAction(
+	ctx context.Context,
+	request frontend.ToolRequest,
+) (frontend.ToolSnapshot, error) {
+	switch request.Kind {
+	case frontend.ToolCheats:
+		return backend.executeCheatAction(ctx, request)
+	default:
+		return frontend.ToolSnapshot{}, fmt.Errorf(
+			"aram-core does not expose %s actions yet",
+			request.Kind,
+		)
+	}
+}
+
 func (backend *Backend) Close() error {
 	backend.operationMu.Lock()
 	defer backend.operationMu.Unlock()
@@ -493,6 +524,10 @@ func (backend *Backend) Close() error {
 	backend.runRequested = false
 	backend.lastFrameHash = 0
 	backend.frameSequence = 0
+	backend.cheats = nil
+	backend.cheatUnavailable = ""
+	backend.cheatImported = false
+	backend.cheatCatalogSource = ""
 	backend.mu.Unlock()
 
 	var errs []error

@@ -79,6 +79,9 @@ func (backend *Backend) Diagnostics() Diagnostics {
 	if machine == nil {
 		return snapshot
 	}
+	// Reporting interfaces live on the core machine, not on the cheat wrapper
+	// the backend publishes, and every probe below is read-only.
+	machine = unwrapMachine(machine)
 	if provider, ok := machine.(interface {
 		ImageInfo() application.ImageInfo
 	}); ok {

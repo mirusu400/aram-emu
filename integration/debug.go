@@ -42,7 +42,7 @@ func (backend *Backend) DebugArtifacts(
 		Backend:       backend.BackendName(),
 		Diagnostics:   diagnostics,
 	}
-	machine := backend.currentMachine()
+	machine := unwrapMachine(backend.currentMachine())
 	if provider, ok := machine.(coreDebugSnapshotter); ok {
 		snapshot := provider.DebugSnapshot(coreDebugTraceEntries)
 		report.Snapshot = &snapshot
