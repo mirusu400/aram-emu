@@ -61,6 +61,32 @@ WIPI or multi-title compatibility.
 Frontend commands remain visible when a backend does not support an operation;
 the adapter reports capability and reason.
 
+## Cheats
+
+Opening an application wraps the core machine with the `aram-core` cheat
+engine, so every later command runs through the wrapper that keeps cheats
+serialized with guest execution. Optional reporting interfaces are reached
+with `Unwrap`, which is read-only; running or mutating the guest still goes
+through the published machine.
+
+The Cheat Manager panel is backed by the `aram-cheat` repository, which stores
+one catalog per title named by the input file's SHA-256. The adapter resolves
+a catalog in this order:
+
+1. `ARAM_CHEAT_DIR`, a local checkout, for authoring and offline use;
+2. the cache an earlier fetch wrote under the user config directory;
+3. `titles/<sha256>.json` from the database over HTTPS.
+
+Only the last step needs the network, and only the first time a title is seen.
+`ARAM_CHEAT_DATABASE` overrides the database base URL. A title with no
+published document is reported as an ordinary answer rather than a failure.
+
+Every patch declares the original bytes it replaces, and the engine refuses to
+apply one whose expected bytes do not match guest memory. All patches of a
+cheat apply as one unit, and a failure rolls the applied patches back.
+`TestPublishedCheatsApplyToTheirReferenceTitle` checks a published catalog
+against the real image when `ARAM_TEST_DATA` and `ARAM_CHEAT_DIR` are set.
+
 The optional `frontend.DebugExportBackend` contract returns named diagnostic
 files. The frontend owns ZIP creation, path redaction, attachment validation,
 checksums, and partial-bundle behavior. The integration adapter serializes

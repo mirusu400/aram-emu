@@ -13,9 +13,12 @@ headless core.
 | `aram-frontend` | Shared Ebitengine screens, commands, settings, keyboard/gamepad/touch UI, platform host bridges | WIPI parsing, guest execution, device internals |
 | `aram-emu` | Integration adapter, release manifests, platform packaging, project roadmap and acceptance gates | Copies of sibling implementation |
 | `aram-test` | Black-box probe orchestration, authorized corpus runs, compatibility deltas, history, and failure triage | Emulator implementation or proprietary inputs |
+| `aram-cheat` | Per-title cheat catalogs keyed by input SHA-256, schema, and catalog validation | Game files, dumps, assets, or emulator code |
 | `anycall_magichole` | Reverse-engineering notes, scripts, traces, recovered structures, executable reference | Clean-room product implementation claims |
 
-All five repositories are private. Their Git histories remain independent.
+Their Git histories remain independent. `aram-cheat` is data the product reads
+at runtime rather than a build input, so a cheat ships without a release and
+without pinning a new component revision.
 
 ## Planned repositories
 
