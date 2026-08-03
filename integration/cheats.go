@@ -403,6 +403,7 @@ func (backend *Backend) cheatSnapshot(
 					Label:   "Check the cheat database",
 					Enabled: true,
 				}},
+				AllowGuestInput: true,
 			}, nil
 		}
 		return frontend.ToolSnapshot{}, err
@@ -460,6 +461,10 @@ func (backend *Backend) cheatPanel(
 		Actions: []frontend.ToolAction{
 			{ID: cheatActionRefresh, Label: "Update from cheat database", Enabled: true},
 		},
+		// A cheat is turned on mid-play, often at the screen it changes, so the
+		// game must keep receiving the keys that advance it while this panel is
+		// open. The panel carries no text entry, so nothing is ambiguous.
+		AllowGuestInput: true,
 	}
 }
 

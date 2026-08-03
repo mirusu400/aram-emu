@@ -162,6 +162,11 @@ func TestCheatPanelListsAndTogglesPublishedCheats(t *testing.T) {
 	if len(snapshot.Actions) != 1 || snapshot.Actions[0].ID != cheatActionRefresh {
 		t.Fatalf("cheat panel actions = %+v", snapshot.Actions)
 	}
+	// A cheat is toggled mid-play, so the panel must not swallow the keypress
+	// that advances the game.
+	if !snapshot.AllowGuestInput {
+		t.Fatal("the cheat panel captures guest input")
+	}
 
 	library, _ := backend.cheatLibrary()
 	if _, err := backend.ExecuteToolAction(context.Background(), frontend.ToolRequest{
