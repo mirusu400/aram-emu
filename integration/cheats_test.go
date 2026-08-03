@@ -150,21 +150,26 @@ func TestCheatPanelListsAndTogglesPublishedCheats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(snapshot.Lines, "\n"), "Skip server authentication") {
-		t.Fatalf("cheat panel lines = %q", snapshot.Lines)
-	}
-	if len(snapshot.Fields) != 1 || len(snapshot.Fields[0].Options) != 1 {
+	toggle := snapshot.Fields[0]
+	if len(snapshot.Fields) != 1 ||
+		!toggle.Checkbox ||
+		toggle.Action != cheatActionToggle ||
+		toggle.ID != cheatFieldPrefix+"skip-server-authentication" ||
+		toggle.Value != "false" ||
+		toggle.Detail == "" {
 		t.Fatalf("cheat panel fields = %+v", snapshot.Fields)
 	}
-	if len(snapshot.Actions) != 3 {
+	if len(snapshot.Actions) != 1 || snapshot.Actions[0].ID != cheatActionRefresh {
 		t.Fatalf("cheat panel actions = %+v", snapshot.Actions)
 	}
 
 	library, _ := backend.cheatLibrary()
 	if _, err := backend.ExecuteToolAction(context.Background(), frontend.ToolRequest{
 		Kind:   frontend.ToolCheats,
-		Action: cheatActionEnable,
-		Fields: map[string]string{cheatFieldCheat: "skip-server-authentication"},
+		Action: cheatActionToggle,
+		Fields: map[string]string{
+			cheatFieldPrefix + "skip-server-authentication": "true",
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -181,8 +186,10 @@ func TestCheatPanelListsAndTogglesPublishedCheats(t *testing.T) {
 
 	if _, err := backend.ExecuteToolAction(context.Background(), frontend.ToolRequest{
 		Kind:   frontend.ToolCheats,
-		Action: cheatActionDisable,
-		Fields: map[string]string{cheatFieldCheat: "skip-server-authentication"},
+		Action: cheatActionToggle,
+		Fields: map[string]string{
+			cheatFieldPrefix + "skip-server-authentication": "false",
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -320,8 +327,9 @@ func TestRepackagedContainerKeepsItsPublishedCheats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(snapshot.Lines, "\n"), "Skip server authentication") {
-		t.Fatalf("cheat panel lines = %q (served %s)", snapshot.Lines, served)
+	if len(snapshot.Fields) != 1 ||
+		snapshot.Fields[0].Label != "Skip server authentication" {
+		t.Fatalf("cheat panel fields = %+v (served %s)", snapshot.Fields, served)
 	}
 }
 
@@ -351,8 +359,9 @@ func TestCatalogPublishedUnderTheFileHashStillResolves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(snapshot.Lines, "\n"), "Skip server authentication") {
-		t.Fatalf("cheat panel lines = %q", snapshot.Lines)
+	if len(snapshot.Fields) != 1 ||
+		snapshot.Fields[0].Label != "Skip server authentication" {
+		t.Fatalf("cheat panel fields = %+v", snapshot.Fields)
 	}
 	if len(requested) != 2 || requested[0] != "/titles/"+image+".json" {
 		t.Fatalf("requests = %v, want the image identity tried first", requested)

@@ -128,6 +128,7 @@ func (backend *Backend) OpenWithProgress(
 		info.ProfileID = imageInfo.ProfileID
 		source.ProfileID = imageInfo.ProfileID
 		imageSHA256 = imageInfo.ImageSHA256
+		info.ImageSHA256 = imageSHA256
 	}
 	// Wrapping happens before the machine is published so every later command
 	// goes through the wrapper that serializes cheats with guest execution.

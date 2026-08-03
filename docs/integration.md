@@ -87,6 +87,12 @@ Only the last step needs the network, and only the first time a title is seen.
 `ARAM_CHEAT_DATABASE` overrides the database base URL. A title with no
 published document is reported as an ordinary answer rather than a failure.
 
+The panel publishes one self-applying checkbox per cheat, so toggling a control
+runs the `toggle` action immediately. That action receives every toggle's state
+and applies the difference against the library, rather than trusting the panel
+to say which control moved. Guest memory stays behind this boundary; the
+frontend owns only the controls.
+
 Every patch declares the original bytes it replaces, and the engine refuses to
 apply one whose expected bytes do not match guest memory. All patches of a
 cheat apply as one unit, and a failure rolls the applied patches back.

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,9 +37,10 @@ var ErrNoPublishedCheats = errors.New("the cheat database publishes no cheats fo
 
 const (
 	cheatActionRefresh = "refresh"
-	cheatActionEnable  = "enable"
-	cheatActionDisable = "disable"
-	cheatFieldCheat    = "cheat"
+	cheatActionToggle  = "toggle"
+	// cheatFieldPrefix namespaces the per-cheat toggles so the action can tell
+	// them apart from any other field the panel carries.
+	cheatFieldPrefix = "cheat."
 )
 
 // cheatCatalogStore resolves per-title catalogs from a local directory, a cache
@@ -425,51 +427,37 @@ func (backend *Backend) cheatPanel(
 	if status != "" {
 		lines = append(lines, status, "")
 	}
-	options := make([]frontend.ToolFieldOption, 0, len(entries))
-	selected := ""
-	for _, entry := range entries {
-		mark := "off"
-		if entry.Enabled {
-			mark = "ON "
-		}
-		lines = append(lines, fmt.Sprintf(
-			"[%s] %s (%s)",
-			mark,
-			entry.Cheat.Name,
-			entry.Cheat.ID,
-		))
-		if entry.Cheat.Description != "" {
-			lines = append(lines, "      "+entry.Cheat.Description)
-		}
-		if selected == "" {
-			selected = entry.Cheat.ID
-		}
-		options = append(options, frontend.ToolFieldOption{
-			Value: entry.Cheat.ID,
-			Label: entry.Cheat.Name,
-		})
+	if len(entries) == 0 {
+		lines = append(lines, "This catalog publishes no cheats.")
 	}
-	sort.SliceStable(options, func(left, right int) bool {
-		return options[left].Label < options[right].Label
-	})
 	lines = append(lines,
-		"",
-		"Cheats are bound to this title's SHA-256 and verify the original",
+		"Cheats are bound to this title's image and verify the original",
 		"bytes before they are applied.",
 	)
 
+	// One self-applying toggle per cheat: the frontend owns the control, and
+	// every guest write stays behind this boundary.
+	sorted := append([]cheat.Entry(nil), entries...)
+	sort.SliceStable(sorted, func(left, right int) bool {
+		return sorted[left].Cheat.Name < sorted[right].Cheat.Name
+	})
+	fields := make([]frontend.ToolField, 0, len(sorted))
+	for _, entry := range sorted {
+		fields = append(fields, frontend.ToolField{
+			ID:       cheatFieldPrefix + entry.Cheat.ID,
+			Label:    entry.Cheat.Name,
+			Detail:   entry.Cheat.Description,
+			Value:    strconv.FormatBool(entry.Enabled),
+			Checkbox: true,
+			Action:   cheatActionToggle,
+		})
+	}
+
 	return frontend.ToolSnapshot{
-		Title: "Cheat Manager",
-		Lines: lines,
-		Fields: []frontend.ToolField{{
-			ID:      cheatFieldCheat,
-			Label:   "Cheat",
-			Value:   selected,
-			Options: options,
-		}},
+		Title:  "Cheat Manager",
+		Lines:  lines,
+		Fields: fields,
 		Actions: []frontend.ToolAction{
-			{ID: cheatActionEnable, Label: "Enable", Enabled: len(entries) != 0},
-			{ID: cheatActionDisable, Label: "Disable", Enabled: len(entries) != 0},
 			{ID: cheatActionRefresh, Label: "Update from cheat database", Enabled: true},
 		},
 	}
@@ -482,24 +470,41 @@ func (backend *Backend) executeCheatAction(
 	switch request.Action {
 	case cheatActionRefresh:
 		return backend.cheatSnapshot(ctx, true, "Catalog updated.")
-	case cheatActionEnable, cheatActionDisable:
+	case cheatActionToggle:
 		library, _ := backend.cheatLibrary()
 		if library == nil {
 			return backend.cheatSnapshot(ctx, false, "")
 		}
-		id := strings.TrimSpace(request.Fields[cheatFieldCheat])
-		if id == "" {
-			return backend.cheatSnapshot(ctx, false, "Select a cheat first.")
+		// The request carries every toggle's state, so apply the difference
+		// rather than trusting the panel to say which control moved.
+		var applied, failures []string
+		for _, entry := range library.Entries() {
+			value, present := request.Fields[cheatFieldPrefix+entry.Cheat.ID]
+			if !present {
+				continue
+			}
+			want := strings.EqualFold(strings.TrimSpace(value), "true")
+			if want == entry.Enabled {
+				continue
+			}
+			if err := library.SetEnabled(entry.Cheat.ID, want); err != nil {
+				failures = append(failures, err.Error())
+				continue
+			}
+			verb := "Enabled "
+			if !want {
+				verb = "Disabled "
+			}
+			applied = append(applied, verb+entry.Cheat.Name)
 		}
-		enable := request.Action == cheatActionEnable
-		if err := library.SetEnabled(id, enable); err != nil {
-			return backend.cheatSnapshot(ctx, false, "Failed: "+err.Error())
+		switch {
+		case len(failures) != 0:
+			return backend.cheatSnapshot(ctx, false, "Failed: "+strings.Join(failures, "; "))
+		case len(applied) != 0:
+			return backend.cheatSnapshot(ctx, false, strings.Join(applied, "; ")+".")
+		default:
+			return backend.cheatSnapshot(ctx, false, "")
 		}
-		verb := "Enabled"
-		if !enable {
-			verb = "Disabled"
-		}
-		return backend.cheatSnapshot(ctx, false, verb+" "+id+".")
 	default:
 		return frontend.ToolSnapshot{}, fmt.Errorf(
 			"unknown cheat action %q",
