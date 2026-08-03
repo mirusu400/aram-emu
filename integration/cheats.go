@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -63,12 +64,19 @@ func newCheatCatalogStore() *cheatCatalogStore {
 
 // load prefers a document that is already on disk so opening the panel stays
 // offline, and downloads only when nothing local answers for the title.
+//
+// Identities are tried in order. The loaded image identity comes first because
+// it survives repackaging; a container hash answers for entries published
+// before an image identity was known.
 func (store *cheatCatalogStore) load(
 	ctx context.Context,
-	sha256 string,
+	identities []string,
 ) (cheat.Catalog, string, error) {
-	if store.localDir != "" {
-		data, err := os.ReadFile(store.titlePath(store.localDir, sha256))
+	for _, identity := range identities {
+		if store.localDir == "" {
+			break
+		}
+		data, err := os.ReadFile(store.titlePath(store.localDir, identity))
 		if err == nil {
 			catalog, err := cheat.ParseCatalog(data)
 			if err != nil {
@@ -80,28 +88,52 @@ func (store *cheatCatalogStore) load(
 			return cheat.Catalog{}, "", err
 		}
 	}
-	cachePath, err := store.cachePath(sha256)
-	if err == nil {
-		data, readErr := os.ReadFile(cachePath)
-		if readErr == nil {
-			catalog, parseErr := cheat.ParseCatalog(data)
-			if parseErr == nil {
-				return catalog, "cache", nil
-			}
-			// A cached document that no longer parses must not wedge the
-			// panel; fall through and fetch a fresh copy.
-			_ = os.Remove(cachePath)
+	for _, identity := range identities {
+		cachePath, err := store.cachePath(identity)
+		if err != nil {
+			continue
 		}
+		data, readErr := os.ReadFile(cachePath)
+		if readErr != nil {
+			continue
+		}
+		if catalog, parseErr := cheat.ParseCatalog(data); parseErr == nil {
+			return catalog, "cache", nil
+		}
+		// A cached document that no longer parses must not wedge the panel;
+		// fall through and fetch a fresh copy.
+		_ = os.Remove(cachePath)
 	}
-	catalog, err := store.fetch(ctx, sha256)
+	catalog, err := store.fetch(ctx, identities)
 	if err != nil {
 		return cheat.Catalog{}, "", err
 	}
 	return catalog, "cheat database", nil
 }
 
-// fetch downloads and caches the published document for one title.
+// fetch downloads and caches the published document for one title, trying each
+// identity until the database answers with something other than a 404.
 func (store *cheatCatalogStore) fetch(
+	ctx context.Context,
+	identities []string,
+) (cheat.Catalog, error) {
+	if len(identities) == 0 {
+		return cheat.Catalog{}, errors.New("loaded input has no hash identity")
+	}
+	for index, identity := range identities {
+		catalog, err := store.fetchOne(ctx, identity)
+		if err == nil {
+			return catalog, nil
+		}
+		if errors.Is(err, ErrNoPublishedCheats) && index < len(identities)-1 {
+			continue
+		}
+		return cheat.Catalog{}, err
+	}
+	return cheat.Catalog{}, ErrNoPublishedCheats
+}
+
+func (store *cheatCatalogStore) fetchOne(
 	ctx context.Context,
 	sha256 string,
 ) (cheat.Catalog, error) {
@@ -145,11 +177,13 @@ func (store *cheatCatalogStore) fetch(
 	if err != nil {
 		return cheat.Catalog{}, err
 	}
-	if !strings.EqualFold(catalog.Title.SHA256, sha256) {
+	if !slices.ContainsFunc(catalog.Title.Identities(), func(identity string) bool {
+		return strings.EqualFold(identity, sha256)
+	}) {
 		return cheat.Catalog{}, fmt.Errorf(
-			"cheat catalog declares SHA-256 %s but answers for %s",
-			catalog.Title.SHA256,
+			"cheat catalog answers for %s but claims %s",
 			sha256,
+			strings.Join(catalog.Title.Identities(), ", "),
 		)
 	}
 	store.writeCache(sha256, data)
@@ -271,7 +305,6 @@ func (backend *Backend) ensureCheatCatalog(
 	refresh bool,
 ) (string, error) {
 	backend.mu.RLock()
-	hash := backend.input.SHA256
 	store := backend.cheatStore
 	imported := backend.cheatImported
 	backend.mu.RUnlock()
@@ -282,6 +315,7 @@ func (backend *Backend) ensureCheatCatalog(
 	if imported && !refresh {
 		return backend.cheatSource(), nil
 	}
+	identities := backend.titleIdentities()
 
 	var (
 		catalog cheat.Catalog
@@ -289,10 +323,10 @@ func (backend *Backend) ensureCheatCatalog(
 		err     error
 	)
 	if refresh {
-		catalog, err = store.fetch(ctx, hash)
+		catalog, err = store.fetch(ctx, identities)
 		source = "cheat database"
 	} else {
-		catalog, source, err = store.load(ctx, hash)
+		catalog, source, err = store.load(ctx, identities)
 	}
 	if err != nil {
 		return "", err
@@ -312,6 +346,21 @@ func (backend *Backend) cheatSource() string {
 	backend.mu.RLock()
 	defer backend.mu.RUnlock()
 	return backend.cheatCatalogSource
+}
+
+// titleIdentities lists the hashes a catalog may be published under, the
+// loaded image first because it survives repackaging.
+func (backend *Backend) titleIdentities() []string {
+	backend.mu.RLock()
+	defer backend.mu.RUnlock()
+	identities := make([]string, 0, 2)
+	if backend.imageSHA256 != "" {
+		identities = append(identities, backend.imageSHA256)
+	}
+	if backend.input.SHA256 != "" {
+		identities = append(identities, backend.input.SHA256)
+	}
+	return identities
 }
 
 func (backend *Backend) cheatSnapshot(
@@ -335,14 +384,16 @@ func (backend *Backend) cheatSnapshot(
 	if err != nil {
 		if errors.Is(err, ErrNoPublishedCheats) {
 			backend.mu.RLock()
-			hash := backend.input.SHA256
+			file := backend.input.SHA256
+			image := backend.imageSHA256
 			backend.mu.RUnlock()
 			return frontend.ToolSnapshot{
 				Title: "Cheat Manager",
 				Lines: []string{
 					"The cheat database publishes no cheats for this title yet.",
 					"",
-					"Title SHA-256: " + hash,
+					"Image SHA-256: " + emptyFallback(image, "unavailable"),
+					"File SHA-256: " + file,
 					"Database: " + defaultCheatDatabaseURL,
 				},
 				Actions: []frontend.ToolAction{{
@@ -367,7 +418,7 @@ func (backend *Backend) cheatPanel(
 
 	lines := []string{
 		"Title: " + emptyFallback(title.Name, "unnamed"),
-		"SHA-256: " + title.SHA256,
+		"Image SHA-256: " + title.ImageSHA256,
 		"Catalog: " + emptyFallback(source, "unknown source"),
 		"",
 	}

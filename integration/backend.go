@@ -43,6 +43,7 @@ type Backend struct {
 	lastFrameHash uint64
 	frameSequence uint64
 
+	imageSHA256        string
 	cheatStore         *cheatCatalogStore
 	cheats             *cheat.Library
 	cheatUnavailable   string
@@ -118,6 +119,7 @@ func (backend *Backend) OpenWithProgress(
 			return info, backendError(classifyMachineError(machine, err), err)
 		}
 	}
+	var imageSHA256 string
 	if provider, ok := machine.(interface {
 		ImageInfo() application.ImageInfo
 	}); ok {
@@ -125,6 +127,7 @@ func (backend *Backend) OpenWithProgress(
 		info.Format = string(imageInfo.SourceKind)
 		info.ProfileID = imageInfo.ProfileID
 		source.ProfileID = imageInfo.ProfileID
+		imageSHA256 = imageInfo.ImageSHA256
 	}
 	// Wrapping happens before the machine is published so every later command
 	// goes through the wrapper that serializes cheats with guest execution.
@@ -144,6 +147,7 @@ func (backend *Backend) OpenWithProgress(
 	backend.cheatUnavailable = cheatUnavailable
 	backend.cheatImported = false
 	backend.cheatCatalogSource = ""
+	backend.imageSHA256 = imageSHA256
 	backend.mu.Unlock()
 
 	if oldMachine != nil {
@@ -449,13 +453,17 @@ func (backend *Backend) ToolSnapshot(
 		backend.mu.RLock()
 		input := backend.input
 		source := backend.source
+		image := backend.imageSHA256
 		backend.mu.RUnlock()
 		return frontend.ToolSnapshot{
 			Title: "Compatibility Report",
 			Lines: []string{
 				"Input: " + input.DisplayName,
 				"Format: " + input.Format,
-				"SHA-256: " + input.SHA256,
+				"File SHA-256: " + input.SHA256,
+				// The image identity is what cheat catalogs are keyed on, so
+				// it belongs where a reporter can copy it.
+				"Image SHA-256: " + emptyFallback(image, "unavailable"),
 				"Profile: " + emptyFallback(input.ProfileID, "unselected"),
 				"Core source: " + source.Path,
 			},
@@ -528,6 +536,7 @@ func (backend *Backend) Close() error {
 	backend.cheatUnavailable = ""
 	backend.cheatImported = false
 	backend.cheatCatalogSource = ""
+	backend.imageSHA256 = ""
 	backend.mu.Unlock()
 
 	var errs []error

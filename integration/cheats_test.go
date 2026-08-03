@@ -20,8 +20,20 @@ import (
 // backend together with the address the catalog fixtures patch.
 func openSyntheticCheatBackend(t *testing.T) (*Backend, frontend.InputInfo) {
 	t.Helper()
+	return openSyntheticCheatBackendWithPadding(t, 0)
+}
+
+// openSyntheticCheatBackendWithPadding prefixes the container with padding so a
+// caller can produce a different file that carries the very same image, the way
+// re-archiving a package does.
+func openSyntheticCheatBackendWithPadding(
+	t *testing.T,
+	padding int,
+) (*Backend, frontend.InputInfo) {
+	t.Helper()
+	container := append(make([]byte, padding), syntheticEADS()...)
 	path := filepath.Join(t.TempDir(), "synthetic.dat")
-	if err := os.WriteFile(path, syntheticEADS(), 0o600); err != nil {
+	if err := os.WriteFile(path, container, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	backend := NewBackend(nil)
@@ -33,6 +45,20 @@ func openSyntheticCheatBackend(t *testing.T) (*Backend, frontend.InputInfo) {
 		t.Fatal(err)
 	}
 	return backend, info
+}
+
+// imageIdentity is the hash published catalogs are keyed on.
+func imageIdentity(t *testing.T, backend *Backend) string {
+	t.Helper()
+	library, unavailable := backend.cheatLibrary()
+	if library == nil {
+		t.Fatalf("no cheat library was attached: %s", unavailable)
+	}
+	identity := library.Engine().ImageSHA256()
+	if identity == "" {
+		t.Fatal("the loaded application has no image identity")
+	}
+	return identity
 }
 
 // cheatPatchTarget picks a writable address and reports the bytes a catalog
@@ -65,8 +91,8 @@ func cheatCatalogDocument(
 ) []byte {
 	t.Helper()
 	document := fmt.Sprintf(`{
-  "version": 1,
-  "title": {"sha256": %q, "name": "Synthetic Title"},
+  "version": 2,
+  "title": {"image_sha256": %q, "name": "Synthetic Title"},
   "cheats": [{
     "id": "skip-server-authentication",
     "name": "Skip server authentication",
@@ -101,15 +127,16 @@ func TestOpenAttachesTheCheatEngineToTheLoadedTitle(t *testing.T) {
 }
 
 func TestCheatPanelListsAndTogglesPublishedCheats(t *testing.T) {
-	backend, info := openSyntheticCheatBackend(t)
+	backend, _ := openSyntheticCheatBackend(t)
 	address, original := cheatPatchTarget(t, backend)
-	document := cheatCatalogDocument(t, info.SHA256, address, original)
+	image := imageIdentity(t, backend)
+	document := cheatCatalogDocument(t, image, address, original)
 
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(
 		func(writer http.ResponseWriter, request *http.Request) {
 			requests++
-			if request.URL.Path != "/titles/"+info.SHA256+".json" {
+			if request.URL.Path != "/titles/"+image+".json" {
 				writer.WriteHeader(http.StatusNotFound)
 				return
 			}
@@ -172,9 +199,10 @@ func TestCheatPanelListsAndTogglesPublishedCheats(t *testing.T) {
 }
 
 func TestCheatCatalogIsCachedAndRefreshedOnDemand(t *testing.T) {
-	backend, info := openSyntheticCheatBackend(t)
+	backend, _ := openSyntheticCheatBackend(t)
 	address, original := cheatPatchTarget(t, backend)
-	document := cheatCatalogDocument(t, info.SHA256, address, original)
+	image := imageIdentity(t, backend)
+	document := cheatCatalogDocument(t, image, address, original)
 
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(
@@ -189,7 +217,7 @@ func TestCheatCatalogIsCachedAndRefreshedOnDemand(t *testing.T) {
 	if _, err := backend.ToolSnapshot(context.Background(), frontend.ToolCheats); err != nil {
 		t.Fatal(err)
 	}
-	cachePath, err := backend.cheatStore.cachePath(info.SHA256)
+	cachePath, err := backend.cheatStore.cachePath(image)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +229,7 @@ func TestCheatCatalogIsCachedAndRefreshedOnDemand(t *testing.T) {
 	if err := json.Unmarshal(cached, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Title.SHA256 != info.SHA256 {
+	if decoded.Title.ImageSHA256 != image {
 		t.Fatalf("cached catalog = %+v", decoded.Title)
 	}
 
@@ -241,6 +269,7 @@ func TestCheatPanelReportsTitlesWithoutPublishedCheats(t *testing.T) {
 
 func TestCheatCatalogForAnotherTitleIsRejected(t *testing.T) {
 	backend, info := openSyntheticCheatBackend(t)
+	_ = info
 	address, original := cheatPatchTarget(t, backend)
 	document := cheatCatalogDocument(t, strings.Repeat("ab", 32), address, original)
 
@@ -254,6 +283,79 @@ func TestCheatCatalogForAnotherTitleIsRejected(t *testing.T) {
 
 	if _, err := backend.ToolSnapshot(context.Background(), frontend.ToolCheats); err == nil {
 		t.Fatalf("a catalog for another title was accepted for %s", info.SHA256)
+	}
+}
+
+// The point of keying on the image: a container that was re-archived has a
+// different file hash but carries the same program, and must keep its cheats.
+func TestRepackagedContainerKeepsItsPublishedCheats(t *testing.T) {
+	original, originalInfo := openSyntheticCheatBackend(t)
+	address, bytesBefore := cheatPatchTarget(t, original)
+	image := imageIdentity(t, original)
+	document := cheatCatalogDocument(t, image, address, bytesBefore)
+
+	repacked, repackedInfo := openSyntheticCheatBackendWithPadding(t, 64)
+	if repackedInfo.SHA256 == originalInfo.SHA256 {
+		t.Fatal("the repacked container kept the original file hash")
+	}
+	if got := imageIdentity(t, repacked); got != image {
+		t.Fatalf("repacked image identity = %s, want %s", got, image)
+	}
+
+	served := ""
+	server := httptest.NewServer(http.HandlerFunc(
+		func(writer http.ResponseWriter, request *http.Request) {
+			served = request.URL.Path
+			if request.URL.Path != "/titles/"+image+".json" {
+				writer.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_, _ = writer.Write(document)
+		},
+	))
+	t.Cleanup(server.Close)
+	repacked.cheatStore.baseURL = server.URL
+
+	snapshot, err := repacked.ToolSnapshot(context.Background(), frontend.ToolCheats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(snapshot.Lines, "\n"), "Skip server authentication") {
+		t.Fatalf("cheat panel lines = %q (served %s)", snapshot.Lines, served)
+	}
+}
+
+// Entries published before an image identity was known are still reachable
+// through the container hash.
+func TestCatalogPublishedUnderTheFileHashStillResolves(t *testing.T) {
+	backend, info := openSyntheticCheatBackend(t)
+	address, original := cheatPatchTarget(t, backend)
+	image := imageIdentity(t, backend)
+	document := cheatCatalogDocument(t, info.SHA256, address, original)
+
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(
+		func(writer http.ResponseWriter, request *http.Request) {
+			requested = append(requested, request.URL.Path)
+			if request.URL.Path != "/titles/"+info.SHA256+".json" {
+				writer.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_, _ = writer.Write(document)
+		},
+	))
+	t.Cleanup(server.Close)
+	backend.cheatStore.baseURL = server.URL
+
+	snapshot, err := backend.ToolSnapshot(context.Background(), frontend.ToolCheats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(snapshot.Lines, "\n"), "Skip server authentication") {
+		t.Fatalf("cheat panel lines = %q", snapshot.Lines)
+	}
+	if len(requested) != 2 || requested[0] != "/titles/"+image+".json" {
+		t.Fatalf("requests = %v, want the image identity tried first", requested)
 	}
 }
 
