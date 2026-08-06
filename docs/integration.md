@@ -93,6 +93,12 @@ and applies the difference against the library, rather than trusting the panel
 to say which control moved. Guest memory stays behind this boundary; the
 frontend owns only the controls.
 
+A catalog entry may declare itself `default_enabled`, for a repair a title
+cannot run without. Those apply as the title loads, so a game whose licence
+server is gone comes up working. Each cheat a person turns on or off is
+recorded under the user config directory beside the catalog cache, keyed by
+image identity, and a recorded choice outranks the default forever after.
+
 Every patch declares the original bytes it replaces, and the engine refuses to
 apply one whose expected bytes do not match guest memory. All patches of a
 cheat apply as one unit, and a failure rolls the applied patches back.

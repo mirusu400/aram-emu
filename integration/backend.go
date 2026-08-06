@@ -49,6 +49,8 @@ type Backend struct {
 	cheatUnavailable   string
 	cheatImported      bool
 	cheatCatalogSource string
+	cheatIdentity      string
+	cheatApplyWarning  string
 }
 
 func NewBackend(factory aramcore.Factory) *Backend {
@@ -148,6 +150,8 @@ func (backend *Backend) OpenWithProgress(
 	backend.cheatUnavailable = cheatUnavailable
 	backend.cheatImported = false
 	backend.cheatCatalogSource = ""
+	backend.cheatIdentity = ""
+	backend.cheatApplyWarning = ""
 	backend.imageSHA256 = imageSHA256
 	backend.mu.Unlock()
 
@@ -537,6 +541,8 @@ func (backend *Backend) Close() error {
 	backend.cheatUnavailable = ""
 	backend.cheatImported = false
 	backend.cheatCatalogSource = ""
+	backend.cheatIdentity = ""
+	backend.cheatApplyWarning = ""
 	backend.imageSHA256 = ""
 	backend.mu.Unlock()
 

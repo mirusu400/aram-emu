@@ -91,7 +91,7 @@ func cheatCatalogDocument(
 ) []byte {
 	t.Helper()
 	document := fmt.Sprintf(`{
-  "version": 2,
+  "version": 3,
   "title": {"image_sha256": %q, "name": "Synthetic Title"},
   "cheats": [{
     "id": "skip-server-authentication",
@@ -371,6 +371,130 @@ func TestCatalogPublishedUnderTheFileHashStillResolves(t *testing.T) {
 	if len(requested) != 2 || requested[0] != "/titles/"+image+".json" {
 		t.Fatalf("requests = %v, want the image identity tried first", requested)
 	}
+}
+
+func defaultOnCatalogDocument(
+	t *testing.T,
+	sha256 string,
+	address uint32,
+	expected []byte,
+) []byte {
+	t.Helper()
+	document := fmt.Sprintf(`{
+  "version": 3,
+  "title": {"image_sha256": %q, "name": "Synthetic Title"},
+  "cheats": [{
+    "id": "skip-server-authentication",
+    "name": "Skip server authentication",
+    "description": "The server stopped answering years ago.",
+    "category": "bypass",
+    "restore_on_disable": true,
+    "default_enabled": true,
+    "patches": [{"address": "0x%08x", "value": "aabbccdd", "expected": %q}]
+  }]
+}`, sha256, address, hex.EncodeToString(expected))
+	if _, err := cheat.ParseCatalog([]byte(document)); err != nil {
+		t.Fatal(err)
+	}
+	return []byte(document)
+}
+
+// A title that cannot run unmodified should come up working, without anyone
+// having to find the repair first.
+func TestDefaultEnabledCheatAppliesWhenTheTitleLoads(t *testing.T) {
+	backend, _ := openSyntheticCheatBackend(t)
+	address, original := cheatPatchTarget(t, backend)
+	image := imageIdentity(t, backend)
+	backend.cheatStore.localDir = writeLocalCatalog(
+		t,
+		image,
+		defaultOnCatalogDocument(t, image, address, original),
+	)
+
+	snapshot, err := backend.ToolSnapshot(context.Background(), frontend.ToolCheats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Fields) != 1 || snapshot.Fields[0].Value != "true" {
+		t.Fatalf("default-on cheat is off in the panel: %+v", snapshot.Fields)
+	}
+	library, _ := backend.cheatLibrary()
+	patched, err := library.Engine().ReadBytes(address, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hex.EncodeToString(patched) != "aabbccdd" {
+		t.Fatalf("guest bytes with a default-on cheat = %x", patched)
+	}
+}
+
+// Turning a default off has to stick, or the choice would be undone by every
+// later launch.
+func TestTurningOffADefaultIsRememberedAcrossOpens(t *testing.T) {
+	shared := t.TempDir()
+	catalogDir := ""
+
+	openOnce := func() (*Backend, uint32, []byte) {
+		backend, _ := openSyntheticCheatBackend(t)
+		backend.cheatStore.cacheRoot = shared
+		address, original := cheatPatchTarget(t, backend)
+		image := imageIdentity(t, backend)
+		if catalogDir == "" {
+			catalogDir = writeLocalCatalog(
+				t,
+				image,
+				defaultOnCatalogDocument(t, image, address, original),
+			)
+		}
+		backend.cheatStore.localDir = catalogDir
+		return backend, address, original
+	}
+
+	first, address, original := openOnce()
+	if _, err := first.ToolSnapshot(context.Background(), frontend.ToolCheats); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.ExecuteToolAction(context.Background(), frontend.ToolRequest{
+		Kind:   frontend.ToolCheats,
+		Action: cheatActionToggle,
+		Fields: map[string]string{
+			cheatFieldPrefix + "skip-server-authentication": "false",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = first.Close()
+
+	second, _, _ := openOnce()
+	snapshot, err := second.ToolSnapshot(context.Background(), frontend.ToolCheats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Fields) != 1 || snapshot.Fields[0].Value != "false" {
+		t.Fatalf("the default came back after being turned off: %+v", snapshot.Fields)
+	}
+	library, _ := second.cheatLibrary()
+	current, err := library.Engine().ReadBytes(address, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hex.EncodeToString(current) != hex.EncodeToString(original) {
+		t.Fatalf("guest bytes after declining the default = %x", current)
+	}
+}
+
+func writeLocalCatalog(t *testing.T, image string, document []byte) string {
+	t.Helper()
+	root := t.TempDir()
+	directory := filepath.Join(root, "titles")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, image+".json")
+	if err := os.WriteFile(path, document, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
 }
 
 func TestCheatDatabaseURLMustUseHTTPS(t *testing.T) {

@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -29,6 +30,7 @@ const (
 	cheatDirectoryEnv       = "ARAM_CHEAT_DIR"
 	maxCheatCatalogBytes    = 1 << 20
 	cheatFetchTimeout       = 20 * time.Second
+	cheatChoicesVersion     = 1
 )
 
 // ErrNoPublishedCheats reports that the cheat database has no document for the
@@ -227,6 +229,64 @@ func (store *cheatCatalogStore) titlePath(root, sha256 string) string {
 	return filepath.Join(root, "titles", sha256+".json")
 }
 
+// cheatChoices records which cheats a person turned on or off for one title.
+// Only explicit choices are stored, so a catalog default keeps applying to
+// every cheat they never touched, and a default that changes later is honored.
+type cheatChoices struct {
+	Version int             `json:"version"`
+	Cheats  map[string]bool `json:"cheats"`
+}
+
+func (store *cheatCatalogStore) choicesPath(sha256 string) (string, error) {
+	if err := validateTitleHash(sha256); err != nil {
+		return "", err
+	}
+	root := store.cacheRoot
+	if root == "" {
+		configRoot, err := os.UserConfigDir()
+		if err != nil {
+			return "", err
+		}
+		root = filepath.Join(configRoot, "ARAM", "cheats")
+	}
+	return filepath.Join(root, "choices", sha256+".json"), nil
+}
+
+func (store *cheatCatalogStore) loadChoices(sha256 string) map[string]bool {
+	path, err := store.choicesPath(sha256)
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var choices cheatChoices
+	if err := json.Unmarshal(data, &choices); err != nil ||
+		choices.Version != cheatChoicesVersion {
+		return nil
+	}
+	return choices.Cheats
+}
+
+func (store *cheatCatalogStore) saveChoices(sha256 string, chosen map[string]bool) error {
+	path, err := store.choicesPath(sha256)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(cheatChoices{
+		Version: cheatChoicesVersion,
+		Cheats:  chosen,
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o600)
+}
+
 func (store *cheatCatalogStore) cachePath(sha256 string) (string, error) {
 	if err := validateTitleHash(sha256); err != nil {
 		return "", err
@@ -336,12 +396,42 @@ func (backend *Backend) ensureCheatCatalog(
 	if err := library.Import(catalog); err != nil {
 		return "", err
 	}
+	// Catalog defaults apply for cheats nobody has decided about, so a title
+	// that cannot run unmodified comes up working rather than needing someone
+	// to find the repair first.
+	identity := catalog.Title.ImageSHA256
+	applyErr := library.ApplyState(store.loadChoices(identity))
+
+	warning := ""
+	if applyErr != nil {
+		warning = applyErr.Error()
+	}
 
 	backend.mu.Lock()
 	backend.cheatImported = true
 	backend.cheatCatalogSource = source
+	backend.cheatIdentity = identity
+	backend.cheatApplyWarning = warning
 	backend.mu.Unlock()
 	return source, nil
+}
+
+// recordCheatChoice remembers an explicit decision so it outlives the session
+// and outranks the catalog default next time.
+func (backend *Backend) recordCheatChoice(id string, enabled bool) error {
+	backend.mu.RLock()
+	store := backend.cheatStore
+	identity := backend.cheatIdentity
+	backend.mu.RUnlock()
+	if store == nil || identity == "" {
+		return nil
+	}
+	chosen := store.loadChoices(identity)
+	if chosen == nil {
+		chosen = make(map[string]bool, 1)
+	}
+	chosen[id] = enabled
+	return store.saveChoices(identity, chosen)
 }
 
 func (backend *Backend) cheatSource() string {
@@ -425,6 +515,14 @@ func (backend *Backend) cheatPanel(
 		"Catalog: " + emptyFallback(source, "unknown source"),
 		"",
 	}
+	if status == "" {
+		backend.mu.RLock()
+		status = backend.cheatApplyWarning
+		backend.mu.RUnlock()
+		if status != "" {
+			status = "Could not apply: " + status
+		}
+	}
 	if status != "" {
 		lines = append(lines, status, "")
 	}
@@ -495,6 +593,9 @@ func (backend *Backend) executeCheatAction(
 			if err := library.SetEnabled(entry.Cheat.ID, want); err != nil {
 				failures = append(failures, err.Error())
 				continue
+			}
+			if err := backend.recordCheatChoice(entry.Cheat.ID, want); err != nil {
+				failures = append(failures, err.Error())
 			}
 			verb := "Enabled "
 			if !want {
