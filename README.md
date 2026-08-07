@@ -96,8 +96,13 @@ revision so the running version is visible in Updates and About ARAM.
 
 The bootstrap never overwrites its running executable. It keeps versioned,
 content-addressed runtimes under `ARAM/runtime/versions` and records the active
-one in `ARAM/runtime/current.json`; launching the original downloaded binary
-delegates to that active runtime. Every launch clears superseded runtimes,
+one in `ARAM/runtime/current.json`; launching the downloaded copy delegates to
+that active runtime. That copy is recognized by its contents rather than its
+location, so moving the app, or the randomized path macOS gives a quarantined
+bundle, does not strand it on the build it shipped with. A newer download hashes
+differently and runs itself instead of deferring to the runtime it replaces, and
+a runtime is identified by its own directory so it never delegates to itself.
+Every launch clears superseded runtimes,
 keeping the active one and the runtime it replaced so the process that installed
 an update can finish exiting; a runtime still running is renamed aside rather
 than emptied, so it is skipped intact. Installing a product archive also deletes

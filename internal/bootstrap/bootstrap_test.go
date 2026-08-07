@@ -91,35 +91,132 @@ func TestCurrentExecutableRejectsMarkerOutsideRuntimeDirectory(t *testing.T) {
 	}
 }
 
-func TestShouldForwardOnlyOriginalUnchangedLauncher(t *testing.T) {
+func TestShouldForwardRecognizesTheLauncherByItsContents(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "versions")
+	const shipped = "shipped build"
+	installed := writeExecutable(t, root, "selected", productExecutableName(), "installed build")
+	superseded := writeExecutable(t, root, "superseded", productExecutableName(), shipped)
+	downloads := t.TempDir()
+	launcher := writeExecutable(t, downloads, "aram-macos-arm64", productExecutableName(), shipped)
 	marker := currentRuntime{
-		Executable:         filepath.Join("runtime", productExecutableName()),
-		LauncherExecutable: filepath.Join("download", productExecutableName()),
-		LauncherSHA256:     "launcher-digest",
+		Executable:         installed,
+		LauncherExecutable: launcher,
+		LauncherSHA256:     digestOf(t, launcher),
 	}
-	installed := marker.Executable
-	if !shouldForward(
-		marker,
-		marker.LauncherExecutable,
-		marker.LauncherSHA256,
-		installed,
-	) {
-		t.Fatal("unchanged original launcher did not forward")
+
+	for _, testcase := range []struct {
+		name    string
+		current string
+		forward bool
+	}{
+		{"unchanged launcher", launcher, true},
+		{
+			"launcher relocated after it was recorded",
+			writeExecutable(t, t.TempDir(), "Applications", productExecutableName(), shipped),
+			true,
+		},
+		{
+			"a newer build than the one recorded as the launcher",
+			writeExecutable(t, downloads, "newer", productExecutableName(), "later build"),
+			false,
+		},
+		{
+			"unrelated build elsewhere",
+			writeExecutable(t, t.TempDir(), "work", productExecutableName(), "developer build"),
+			false,
+		},
+		{"the selected runtime itself", installed, false},
+		{
+			"the selected runtime running from inside its bundle",
+			writeExecutable(
+				t,
+				filepath.Join(root, "selected"),
+				filepath.Join("ARAM.app", "Contents", "MacOS"),
+				productExecutableName(),
+				shipped,
+			),
+			false,
+		},
+		{"a superseded runtime", superseded, true},
+	} {
+		t.Run(testcase.name, func(t *testing.T) {
+			forward, err := shouldForward(marker, root, testcase.current, installed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if forward != testcase.forward {
+				t.Fatalf("forward = %t, want %t", forward, testcase.forward)
+			}
+		})
 	}
-	if shouldForward(marker, marker.LauncherExecutable, "new-build", installed) {
-		t.Fatal("a newer executable at the launcher path forwarded to the old runtime")
+}
+
+func TestInstallRerecordsALauncherThatMoved(t *testing.T) {
+	isolateConfig(t)
+	markerPath, err := currentRuntimePath()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if shouldForward(
-		marker,
-		filepath.Join("new-download", productExecutableName()),
-		"new-build",
-		installed,
-	) {
-		t.Fatal("a separately downloaded executable forwarded to the old runtime")
+	if err := os.MkdirAll(filepath.Dir(markerPath), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if shouldForward(marker, installed, "installed-build", installed) {
-		t.Fatal("the installed runtime forwarded to itself")
+	stale := []byte(`{"executable":"","launcher_executable":` +
+		quoteJSON(filepath.Join("gone", productExecutableName())) +
+		`,"launcher_sha256":"0bsolete"}`)
+	if err := os.WriteFile(markerPath, stale, 0o600); err != nil {
+		t.Fatal(err)
 	}
+
+	archivePath := filepath.Join(t.TempDir(), "aram.tar.gz")
+	createProductArchive(t, archivePath, "tar.gz", map[string][]byte{
+		productExecutableName(): []byte("synthetic ARAM executable"),
+	})
+	if _, err := Install(archivePath); err != nil {
+		t.Fatal(err)
+	}
+
+	marker, err := readCurrentRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The test binary stands in for the launcher a person started, and it is
+	// not inside the isolated runtime directory.
+	running, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !samePath(marker.LauncherExecutable, running) {
+		t.Fatalf(
+			"launcher = %q, want the running executable %q",
+			marker.LauncherExecutable,
+			running,
+		)
+	}
+	if marker.LauncherSHA256 != digestOf(t, running) {
+		t.Fatalf("launcher digest = %q, want the running one", marker.LauncherSHA256)
+	}
+}
+
+func writeExecutable(t *testing.T, root string, directory string, name string, contents string) string {
+	t.Helper()
+	folder := filepath.Join(root, directory)
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(folder, name)
+	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func digestOf(t *testing.T, path string) string {
+	t.Helper()
+	digest, err := fileSHA256(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
 }
 
 func createProductArchive(

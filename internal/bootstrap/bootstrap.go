@@ -59,11 +59,15 @@ func ForwardToInstalled(args []string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	currentDigest, err := fileSHA256(current)
+	root, err := runtimeDirectory()
 	if err != nil {
 		return false, err
 	}
-	if !shouldForward(marker, current, currentDigest, installed) {
+	forward, err := shouldForward(marker, root, current, installed)
+	if err != nil {
+		return false, err
+	}
+	if !forward {
 		return false, nil
 	}
 	if err := Launch(installed, args); err != nil {
@@ -201,20 +205,41 @@ func selectedExecutable(marker currentRuntime) (string, error) {
 	return executable, nil
 }
 
+// shouldForward reports whether the running copy at current has to hand over to
+// the installed runtime.
+//
+// A runtime under root answers for itself: the selected one continues in
+// process, and a superseded one defers. Deciding this by directory rather than
+// by executable path matters on macOS, where the runtime is entered through a
+// launcher script but runs from inside an application bundle, so the running
+// path never equals the selected one.
+//
+// Anything else is a launcher, and is recognized by its contents rather than
+// its location. A launcher moved after it was recorded is still the same build,
+// and macOS runs a quarantined bundle from a path it randomizes on every
+// launch. A newer build saved over the launcher hashes differently and runs
+// itself instead of deferring to the runtime it exists to replace.
 func shouldForward(
 	marker currentRuntime,
+	root string,
 	current string,
-	currentDigest string,
 	installed string,
-) bool {
+) (bool, error) {
 	if samePath(current, installed) {
-		return false
+		return false, nil
 	}
-	if marker.LauncherExecutable == "" || marker.LauncherSHA256 == "" {
-		return false
+	selected, _ := runtimeOwning(root, installed)
+	if running, ok := runtimeOwning(root, current); ok {
+		return running != selected, nil
 	}
-	return samePath(current, marker.LauncherExecutable) &&
-		strings.EqualFold(currentDigest, marker.LauncherSHA256)
+	if marker.LauncherSHA256 == "" {
+		return false, nil
+	}
+	currentDigest, err := fileSHA256(current)
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(currentDigest, marker.LauncherSHA256), nil
 }
 
 func Launch(executable string, args []string) error {
@@ -246,15 +271,25 @@ func writeCurrentRuntime(executable string, digest string) error {
 	if err != nil {
 		return fmt.Errorf("resolve launcher executable: %w", err)
 	}
-	launcherDigest, err := fileSHA256(launcher)
+	root, err := runtimeDirectory()
 	if err != nil {
-		return fmt.Errorf("hash launcher executable: %w", err)
+		return err
 	}
-	if existing.LauncherExecutable != "" &&
-		existing.LauncherSHA256 != "" &&
-		!samePath(launcher, existing.LauncherExecutable) {
+	var launcherDigest string
+	if _, installing := runtimeOwning(root, launcher); installing {
+		// An installed runtime is applying this update, so it is not the copy
+		// that has to be told where the product moved. Leave the recorded
+		// launcher alone, and never record a runtime as its own launcher.
 		launcher = existing.LauncherExecutable
 		launcherDigest = existing.LauncherSHA256
+	} else {
+		// Re-record on every install from outside the runtime directory. The
+		// launcher a person actually starts is the one that has to forward, and
+		// it changes whenever the product is downloaded again or moved.
+		launcherDigest, err = fileSHA256(launcher)
+		if err != nil {
+			return fmt.Errorf("hash launcher executable: %w", err)
+		}
 	}
 	data, err := json.MarshalIndent(currentRuntime{
 		Executable:         executable,
