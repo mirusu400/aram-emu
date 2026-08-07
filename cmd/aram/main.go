@@ -13,6 +13,10 @@ import (
 
 const openAfterInstallArgument = "--aram-open-after-install"
 
+// keptPreviousRuntimes is how many superseded runtimes survive a prune. One
+// covers the runtime that installed the update and is still shutting down.
+const keptPreviousRuntimes = 1
+
 type productBackend struct {
 	*integration.Backend
 	relaunchArgs []string
@@ -40,6 +44,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "aram: installed runtime:", err)
 	} else if forwarded {
 		return
+	}
+
+	// Installing an update leaves the runtime it replaced behind. Clearing
+	// superseded runtimes at startup rather than at install time lets the
+	// process that launched this one finish exiting first.
+	if err := bootstrap.PruneRuntimes(keptPreviousRuntimes); err != nil {
+		fmt.Fprintln(os.Stderr, "aram: superseded runtimes:", err)
 	}
 
 	initialPath, openOnStart := parseArguments(os.Args[1:])

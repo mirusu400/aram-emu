@@ -97,7 +97,12 @@ revision so the running version is visible in Updates and About ARAM.
 The bootstrap never overwrites its running executable. It keeps versioned,
 content-addressed runtimes under `ARAM/runtime/versions` and records the active
 one in `ARAM/runtime/current.json`; launching the original downloaded binary
-delegates to that active runtime.
+delegates to that active runtime. Every launch clears superseded runtimes,
+keeping the active one and the runtime it replaced so the process that installed
+an update can finish exiting; a runtime still running is renamed aside rather
+than emptied, so it is skipped intact. Installing a product archive also deletes
+the download it came from, while an archive left by a failed install stays for a
+manual install.
 
 Build or invoke the black-box compatibility probe:
 
