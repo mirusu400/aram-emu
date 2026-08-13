@@ -11,6 +11,9 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
+import android.view.View;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.Toast;
 
@@ -47,6 +50,7 @@ public final class MainActivity extends Activity
         super.onCreate(savedInstanceState);
         Seq.setContext(getApplicationContext());
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        enterImmersiveMode();
 
         if (savedInstanceState != null) {
             pendingFirmware = savedInstanceState.getBoolean(
@@ -127,6 +131,48 @@ public final class MainActivity extends Activity
     protected void onSaveInstanceState(Bundle outState) {
         outState.putBoolean(STATE_PENDING_FIRMWARE, pendingFirmware);
         super.onSaveInstanceState(outState);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            enterImmersiveMode();
+        }
+    }
+
+    // The system bars overlay the frontend's own top menu bar, so the game
+    // runs fullscreen; an edge swipe reveals the bars transiently.
+    private void enterImmersiveMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WindowManager.LayoutParams attributes = getWindow().getAttributes();
+            attributes.layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(attributes);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.setSystemBarsBehavior(
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                );
+                controller.hide(WindowInsets.Type.systemBars());
+            }
+        } else {
+            enterLegacyImmersiveMode();
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void enterLegacyImmersiveMode() {
+        getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        );
     }
 
     @Override
