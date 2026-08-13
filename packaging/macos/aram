@@ -2,4 +2,11 @@
 set -eu
 
 aram_launcher_dir=$(CDPATH= cd -P "$(dirname "$0")" && pwd)
+# A downloaded build carries com.apple.quarantine, so Gatekeeper refuses to
+# launch the unsigned app. Strip it best-effort from this extracted folder so
+# running the launcher from a terminal opens the app without a manual
+# "xattr -cr" step. This does NOT help a Finder double-click of ARAM.app: that
+# bypasses this launcher and Gatekeeper blocks it before any code runs, which
+# still needs notarization or a one-time right-click -> Open.
+xattr -dr com.apple.quarantine "${aram_launcher_dir}" 2>/dev/null || true
 exec "${aram_launcher_dir}/ARAM.app/Contents/MacOS/aram" "$@"
