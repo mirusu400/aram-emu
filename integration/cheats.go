@@ -31,6 +31,11 @@ const (
 	maxCheatCatalogBytes    = 1 << 20
 	cheatFetchTimeout       = 20 * time.Second
 	cheatChoicesVersion     = 1
+	// openCheatEnsureTimeout bounds the catalog resolution that runs while a
+	// title opens. Opening must stay snappy even when the database is slow or
+	// the machine is offline; the Cheat Manager keeps the full fetch timeout
+	// and retries when opened.
+	openCheatEnsureTimeout = 3 * time.Second
 )
 
 // ErrNoPublishedCheats reports that the cheat database has no document for the

@@ -161,6 +161,19 @@ func (backend *Backend) OpenWithProgress(
 	if oldFile != nil {
 		_ = oldFile.Close()
 	}
+
+	// Catalog defaults must be in guest memory before Open returns, because
+	// the shell starts the machine immediately afterwards and a repair such
+	// as skipping a dead authentication server patches code the guest runs
+	// while booting. Waiting for the Cheat Manager to import the catalog
+	// left default-enabled cheats inert until the first reset. A title with
+	// no published document or an unreachable database is an ordinary open;
+	// the panel retries and reports when asked.
+	if library != nil {
+		ensureCtx, cancel := context.WithTimeout(ctx, openCheatEnsureTimeout)
+		_, _ = backend.ensureCheatCatalog(ensureCtx, library, false)
+		cancel()
+	}
 	return info, nil
 }
 

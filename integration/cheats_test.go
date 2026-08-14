@@ -428,15 +428,70 @@ func TestDefaultEnabledCheatAppliesWhenTheTitleLoads(t *testing.T) {
 	}
 }
 
+// The shell starts the guest the moment Open returns, so a default-on repair
+// has to be in guest memory by then — a boot-time patch applied when the
+// panel first opens has already missed the code it repairs. This is the
+// Zenonia 1 case: the authentication bypass must precede the first boot.
+func TestDefaultEnabledCheatIsAppliedBeforeOpenReturns(t *testing.T) {
+	probe, _ := openSyntheticCheatBackend(t)
+	address, original := cheatPatchTarget(t, probe)
+	image := imageIdentity(t, probe)
+	catalogDir := writeLocalCatalog(
+		t,
+		image,
+		defaultOnCatalogDocument(t, image, address, original),
+	)
+	_ = probe.Close()
+
+	path := filepath.Join(t.TempDir(), "synthetic.dat")
+	if err := os.WriteFile(path, syntheticEADS(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := NewBackend(nil)
+	t.Cleanup(func() { _ = backend.Close() })
+	backend.cheatStore.cacheRoot = t.TempDir()
+	backend.cheatStore.localDir = catalogDir
+	if _, err := backend.Open(context.Background(), frontend.OpenRequest{Path: path}); err != nil {
+		t.Fatal(err)
+	}
+
+	// No panel was opened: the repair must already be in guest memory.
+	library, unavailable := backend.cheatLibrary()
+	if library == nil {
+		t.Fatalf("no cheat library was attached: %s", unavailable)
+	}
+	patched, err := library.Engine().ReadBytes(address, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hex.EncodeToString(patched) != "aabbccdd" {
+		t.Fatalf("guest bytes after open = %x, want the default applied", patched)
+	}
+	if entry, ok := library.Entry("skip-server-authentication"); !ok || !entry.Enabled {
+		t.Fatalf("library entry after open = %+v", entry)
+	}
+}
+
 // Turning a default off has to stick, or the choice would be undone by every
 // later launch.
 func TestTurningOffADefaultIsRememberedAcrossOpens(t *testing.T) {
 	shared := t.TempDir()
 	catalogDir := ""
 
+	// The catalog directory is known from the second open on, so later opens
+	// resolve it while loading, the way a real launch does.
 	openOnce := func() (*Backend, uint32, []byte) {
-		backend, _ := openSyntheticCheatBackend(t)
+		path := filepath.Join(t.TempDir(), "synthetic.dat")
+		if err := os.WriteFile(path, syntheticEADS(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		backend := NewBackend(nil)
+		t.Cleanup(func() { _ = backend.Close() })
 		backend.cheatStore.cacheRoot = shared
+		backend.cheatStore.localDir = catalogDir
+		if _, err := backend.Open(context.Background(), frontend.OpenRequest{Path: path}); err != nil {
+			t.Fatal(err)
+		}
 		address, original := cheatPatchTarget(t, backend)
 		image := imageIdentity(t, backend)
 		if catalogDir == "" {
@@ -445,8 +500,8 @@ func TestTurningOffADefaultIsRememberedAcrossOpens(t *testing.T) {
 				image,
 				defaultOnCatalogDocument(t, image, address, original),
 			)
+			backend.cheatStore.localDir = catalogDir
 		}
-		backend.cheatStore.localDir = catalogDir
 		return backend, address, original
 	}
 

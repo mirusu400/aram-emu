@@ -70,14 +70,49 @@ func TestPublishedCheatsApplyToTheirReferenceTitle(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatalf("the cheat database publishes nothing for %s", zenoniaSHA256)
 	}
+	// Opening applied the catalog defaults, so a repair the title cannot run
+	// without is already in guest memory — the Zenonia 1 bug was exactly this
+	// patch waiting for the panel and missing the first boot.
 	for _, entry := range entries {
-		assertCheatAppliesAndReverts(t, library, entry.Cheat)
+		if entry.Cheat.DefaultEnabled && !entry.Enabled {
+			t.Fatalf("default-enabled cheat %s did not apply at open", entry.Cheat.ID)
+		}
+	}
+	for _, entry := range entries {
+		assertCheatAppliesAndReverts(t, library, entry)
 	}
 }
 
-func assertCheatAppliesAndReverts(t *testing.T, library *cheat.Library, entry cheat.Cheat) {
+func assertCheatAppliesAndReverts(t *testing.T, library *cheat.Library, applied cheat.Entry) {
 	t.Helper()
 	engine := library.Engine()
+	entry := applied.Cheat
+	if applied.Enabled {
+		// The open already applied this cheat; prove it landed, then restore
+		// the original bytes so the roundtrip below starts from the image.
+		for index, patch := range entry.Patches {
+			current, err := engine.ReadBytes(uint32(patch.Address), len(patch.Value))
+			if err != nil {
+				t.Fatalf("%s patch %d: %v", entry.ID, index, err)
+			}
+			if !bytes.Equal(current, patch.Value) {
+				t.Fatalf(
+					"%s patch %d at 0x%08x applied at open = %x, want %x",
+					entry.ID,
+					index,
+					uint32(patch.Address),
+					current,
+					patch.Value,
+				)
+			}
+		}
+		if !entry.RestoreOnDisable {
+			return
+		}
+		if err := library.SetEnabled(entry.ID, false); err != nil {
+			t.Fatalf("disable %s: %v", entry.ID, err)
+		}
+	}
 	for index, patch := range entry.Patches {
 		original, err := engine.ReadBytes(uint32(patch.Address), len(patch.Expected))
 		if err != nil {
