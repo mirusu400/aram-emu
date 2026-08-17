@@ -20,6 +20,7 @@ require (
 	github.com/go-text/typesetting v0.3.0 // indirect
 	github.com/jezek/xgb v1.1.1 // indirect
 	github.com/josephspurrier/goversioninfo v1.4.1 // indirect
+	github.com/mirusu400/aram-authd v0.0.0
 	github.com/ncruces/zenity v0.10.14 // indirect
 	github.com/randall77/makefat v0.0.0-20210315173500-7ddd0e42c844 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
@@ -33,3 +34,5 @@ require (
 replace github.com/mirusu400/aram-core => ../aram-core
 
 replace github.com/mirusu400/aram-frontend => ../aram-frontend
+
+replace github.com/mirusu400/aram-authd => ../aram-authd
