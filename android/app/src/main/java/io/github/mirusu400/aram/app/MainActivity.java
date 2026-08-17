@@ -50,7 +50,6 @@ public final class MainActivity extends Activity
         super.onCreate(savedInstanceState);
         Seq.setContext(getApplicationContext());
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        enterImmersiveMode();
 
         if (savedInstanceState != null) {
             pendingFirmware = savedInstanceState.getBoolean(
@@ -67,6 +66,9 @@ public final class MainActivity extends Activity
         gameView.setFocusableInTouchMode(true);
         setContentView(gameView);
         gameView.requestFocus();
+        // The window's DecorView exists only after setContentView(), and the
+        // API 30+ insets controller lives on that DecorView.
+        enterImmersiveMode();
 
         audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         handleIncomingIntent(getIntent());
@@ -151,7 +153,11 @@ public final class MainActivity extends Activity
             getWindow().setAttributes(attributes);
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            WindowInsetsController controller = getWindow().getInsetsController();
+            // Window.getInsetsController() dereferences the DecorView and
+            // throws before it is installed; getDecorView() installs it on
+            // demand and returns a pending controller until the view attaches.
+            WindowInsetsController controller =
+                    getWindow().getDecorView().getWindowInsetsController();
             if (controller != null) {
                 controller.setSystemBarsBehavior(
                         WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
