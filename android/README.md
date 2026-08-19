@@ -11,7 +11,8 @@ is not the standalone frontend preview: the AAR statically includes the pinned
 - Storage Access Framework document selection;
 - private, bounded copies of provider documents for the Go backend;
 - incoming View/Send document intents;
-- audio focus and gamepad/touch delivery through Ebitengine.
+- audio focus and gamepad/touch delivery through Ebitengine;
+- handing downloaded product updates to the system package installer.
 
 ## Local Nightly build
 
@@ -56,3 +57,17 @@ backend always receives a seekable filesystem path.
 Frontend settings and debug exports use the app-private `files/config`
 directory. The Activity initializes the Go runtime context and this storage
 root before Ebitengine creates the shared frontend shell.
+
+## In-app product updates
+
+The frontend's Updates settings download the published
+`aram-android-universal.apk` for the selected channel into the app-private
+`files/updates` directory. The Go layer verifies size and SHA-256 digest, then
+the Activity hands the package to the system package installer through the
+non-exported `UpdateProvider` with a per-intent read grant; the user confirms
+the update there while ARAM keeps running. Android asks once per source for
+the `REQUEST_INSTALL_PACKAGES` "install unknown apps" approval. Because the
+installer reads the package after the hand-off, `files/updates` is cleared on
+the next launch rather than immediately. Nightly-over-Nightly updates work
+because CI signs every Nightly with the repository `nightly.keystore`; a
+Stable app from a different signer must be installed manually.
