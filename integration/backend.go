@@ -162,6 +162,11 @@ func (backend *Backend) OpenWithProgress(
 		_ = oldFile.Close()
 	}
 
+	// Load the title's persisted writable storage before the shell starts the
+	// machine, so a Clet's first-run save (for example 에픽크로니클PE's gopt.sav)
+	// survives the exit-and-relaunch its "restart required" notice demands.
+	backend.restoreSaveData(machine, info.SHA256)
+
 	// Catalog defaults must be in guest memory before Open returns, because
 	// the shell starts the machine immediately afterwards and a repair such
 	// as skipping a dead authentication server patches code the guest runs
@@ -356,8 +361,14 @@ func (backend *Backend) ExecuteCommand(
 	case frontend.CommandStop:
 		backend.setRunRequested(false)
 		err = machine.Stop()
+		if err == nil {
+			backend.persistSaveData(machine, backend.currentInputHash())
+		}
 	case frontend.CommandReset:
 		backend.setRunRequested(false)
+		// Capture the current writable storage before the reset re-bootstraps
+		// the guest, so a save written this run is not lost on restart.
+		backend.persistSaveData(machine, backend.currentInputHash())
 		err = machine.Reset(ctx)
 	case frontend.CommandFrame:
 		err = machine.StepFrame(ctx)
@@ -398,6 +409,9 @@ func (backend *Backend) RunFrame(ctx context.Context) error {
 	}
 	if !machineCanContinue(machine.State()) {
 		backend.setRunRequested(false)
+		// The guest ended (for example a Clet called MC_knlExit); flush its
+		// writable storage so the next launch reloads the save.
+		backend.persistSaveData(machine, backend.currentInputHash())
 	}
 	return nil
 }
@@ -543,6 +557,7 @@ func (backend *Backend) Close() error {
 	backend.mu.Lock()
 	machine := backend.machine
 	sourceFile := backend.sourceFile
+	closingHash := backend.input.SHA256
 	backend.machine = nil
 	backend.sourceFile = nil
 	backend.source = aramcore.Source{}
@@ -561,6 +576,8 @@ func (backend *Backend) Close() error {
 
 	var errs []error
 	if machine != nil {
+		// Flush the title's writable storage so saves survive a close/reopen.
+		backend.persistSaveData(machine, closingHash)
 		errs = append(errs, machine.Close())
 	}
 	if sourceFile != nil {
