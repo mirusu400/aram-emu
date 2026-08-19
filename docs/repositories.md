@@ -12,6 +12,7 @@ headless core.
 | `aram-core` | Machine and CPU contracts, safe loaders, profiles, WIPI/OEM runtime, state and debugger services | Windows, Android, or Ebitengine UI code |
 | `aram-frontend` | Shared Ebitengine screens, commands, settings, keyboard/gamepad/touch UI, platform host bridges | WIPI parsing, guest execution, device internals |
 | `aram-emu` | Integration adapter, release manifests, platform packaging, project roadmap and acceptance gates | Copies of sibling implementation |
+| `aram-authd` | Pure-Go LGT carrier DRM/auth handshake emulator injected by `aram-emu` as the raptor `NetBackend` | Live network services, guest execution, UI |
 | `aram-test` | Black-box probe orchestration, authorized corpus runs, compatibility deltas, history, and failure triage | Emulator implementation or proprietary inputs |
 | `aram-cheat` | Per-title cheat catalogs keyed by input SHA-256, schema, and catalog validation | Game files, dumps, assets, or emulator code |
 | `anycall_magichole` | Reverse-engineering notes, scripts, traces, recovered structures, executable reference | Clean-room product implementation claims |
@@ -39,7 +40,8 @@ repositories whose only content is a future idea.
 ## Versioning and integration
 
 - Each code repository tags its own semantic version.
-- `aram-emu` pins exact core and frontend revisions for a product build.
+- `aram-emu` pins exact core, frontend, and authd revisions for a product
+  build.
 - Development may use a local Go workspace; CI and releases use reproducible
   tagged or commit-pinned dependencies.
 - Contract changes land with a migration document before the integration pin

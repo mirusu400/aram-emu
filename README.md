@@ -138,16 +138,19 @@ Publishing a non-nightly GitHub release builds the tagged desktop product and
 attaches its archives and checksums to that release; production Android
 signing remains a separate Stable-release gate.
 
-The product workflow checks out the exact revisions recorded in
-`product-components.json`, so the local `go.work` and `replace` directives
-resolve reproducibly. A lightweight hourly workflow watches the successfully
-published `nightly` revisions from the public `aram-core` and `aram-frontend`
-repositories. When either revision changes, it commits the updated component
-lock and dispatches a fresh integrated ARAM Nightly. This means component
-Nightlies gate the product build; their standalone archives remain developer
-downloads and are not dynamically loaded into an installed ARAM process.
+The product workflow checks out the exact `aram-core`, `aram-frontend`, and
+`aram-authd` revisions recorded in `product-components.json`, so the local
+`go.work` and `replace` directives resolve reproducibly. A lightweight hourly
+workflow watches the successfully published `nightly` revisions from the
+public `aram-core` and `aram-frontend` repositories. When either revision
+changes, it commits the updated component lock and dispatches a fresh
+integrated ARAM Nightly. This means component Nightlies gate the product
+build; their standalone archives remain developer downloads and are not
+dynamically loaded into an installed ARAM process. `aram-authd` publishes no
+Nightly yet, so its `authd` pin is bumped by hand when the integration adapter
+needs a newer revision.
 
-A manual workflow run may override either dependency ref for integration
+A manual workflow run may override any dependency ref for integration
 testing. Each archive contains `BUILD-INFO.txt` with the exact revisions used.
 
 ## Project documents

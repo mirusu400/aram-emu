@@ -13,6 +13,9 @@ on:
       frontend_ref:
         description: aram-frontend override (blank uses product-components.json)
         required: false
+      authd_ref:
+        description: aram-authd override (blank uses product-components.json)
+        required: false
   release:
     types:
       - published
@@ -31,6 +34,7 @@ jobs:
     outputs:
       core_sha: ${{ steps.revisions.outputs.core_sha }}
       frontend_sha: ${{ steps.revisions.outputs.frontend_sha }}
+      authd_sha: ${{ steps.revisions.outputs.authd_sha }}
     steps:
       - name: Check out product manifest
         uses: actions/checkout@v6
@@ -45,15 +49,20 @@ jobs:
         env:
           CORE_REF_OVERRIDE: ${{ inputs.core_ref }}
           FRONTEND_REF_OVERRIDE: ${{ inputs.frontend_ref }}
+          AUTHD_REF_OVERRIDE: ${{ inputs.authd_ref }}
         run: |
           core_ref="${CORE_REF_OVERRIDE:-$(jq -r '.core' product-components.json)}"
           frontend_ref="${FRONTEND_REF_OVERRIDE:-$(jq -r '.frontend' product-components.json)}"
+          authd_ref="${AUTHD_REF_OVERRIDE:-$(jq -r '.authd' product-components.json)}"
           test -n "${core_ref}"
           test "${core_ref}" != "null"
           test -n "${frontend_ref}"
           test "${frontend_ref}" != "null"
+          test -n "${authd_ref}"
+          test "${authd_ref}" != "null"
           echo "core_ref=${core_ref}" >> "${GITHUB_OUTPUT}"
           echo "frontend_ref=${frontend_ref}" >> "${GITHUB_OUTPUT}"
+          echo "authd_ref=${authd_ref}" >> "${GITHUB_OUTPUT}"
 
       - name: Check out core
         uses: actions/checkout@v6
@@ -71,12 +80,21 @@ jobs:
           path: aram-frontend
           persist-credentials: false
 
+      - name: Check out authd
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-authd
+          ref: ${{ steps.requested.outputs.authd_ref }}
+          path: aram-authd
+          persist-credentials: false
+
       - name: Record exact component revisions
         id: revisions
         shell: bash
         run: |
           echo "core_sha=$(git -C aram-core rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
           echo "frontend_sha=$(git -C aram-frontend rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+          echo "authd_sha=$(git -C aram-authd rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
 
   desktop:
     name: ${{ matrix.name }}
@@ -129,6 +147,14 @@ jobs:
           path: aram-frontend
           persist-credentials: false
 
+      - name: Check out authd
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-authd
+          ref: ${{ needs.resolve-components.outputs.authd_sha }}
+          path: aram-authd
+          persist-credentials: false
+
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -138,6 +164,7 @@ jobs:
             aram-emu/go.work.sum
             aram-core/go.sum
             aram-frontend/go.sum
+            aram-authd/go.sum
 
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
@@ -213,6 +240,7 @@ jobs:
             echo "aram-emu=${GITHUB_SHA}"
             echo "aram-core=${{ needs.resolve-components.outputs.core_sha }}"
             echo "aram-frontend=${{ needs.resolve-components.outputs.frontend_sha }}"
+            echo "aram-authd=${{ needs.resolve-components.outputs.authd_sha }}"
           } > build/package/BUILD-INFO.txt
 
       - name: Package Windows build
@@ -266,6 +294,14 @@ jobs:
           path: aram-frontend
           persist-credentials: false
 
+      - name: Check out authd
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-authd
+          ref: ${{ needs.resolve-components.outputs.authd_sha }}
+          path: aram-authd
+          persist-credentials: false
+
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -275,6 +311,7 @@ jobs:
             aram-emu/go.work.sum
             aram-core/go.sum
             aram-frontend/go.sum
+            aram-authd/go.sum
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -331,6 +368,7 @@ jobs:
             echo "aram-emu=${GITHUB_SHA}"
             echo "aram-core=${{ needs.resolve-components.outputs.core_sha }}"
             echo "aram-frontend=${{ needs.resolve-components.outputs.frontend_sha }}"
+            echo "aram-authd=${{ needs.resolve-components.outputs.authd_sha }}"
           } > android/app/src/main/assets/BUILD-INFO.txt
 
       - name: Build and lint Android Nightly APK
@@ -440,6 +478,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CORE_SHA: ${{ needs.resolve-components.outputs.core_sha }}
           FRONTEND_SHA: ${{ needs.resolve-components.outputs.frontend_sha }}
+          AUTHD_SHA: ${{ needs.resolve-components.outputs.authd_sha }}
         shell: bash
         run: |
           emu_short="${GITHUB_SHA::7}"
@@ -451,6 +490,7 @@ jobs:
           aram-emu: ${GITHUB_SHA}
           aram-core: ${CORE_SHA}
           aram-frontend: ${FRONTEND_SHA}
+          aram-authd: ${AUTHD_SHA}
 
           Source: https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}
           Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
