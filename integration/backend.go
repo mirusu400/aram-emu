@@ -284,7 +284,12 @@ func (backend *Backend) Capability(command frontend.BackendCommand) frontend.Cap
 	supported := false
 	switch command {
 	case frontend.CommandStart:
-		supported = state == frontend.StateReady || state == frontend.StatePaused
+		// Stopped is startable too: a title that exited on its own (a Clet's
+		// MC_knlExit) restarts by re-bootstrapping on Start, so the user can
+		// relaunch it without a separate Reset.
+		supported = state == frontend.StateReady ||
+			state == frontend.StatePaused ||
+			state == frontend.StateStopped
 	case frontend.CommandPauseResume:
 		supported = state == frontend.StateRunning || state == frontend.StatePaused
 	case frontend.CommandStop:
@@ -348,6 +353,18 @@ func (backend *Backend) ExecuteCommand(
 	var err error
 	switch request.Command {
 	case frontend.CommandStart:
+		if machine.State() == aramcore.StateStopped {
+			// The guest ended (for example a first-run Clet's MC_knlExit).
+			// Re-bootstrap it — preserving the title's writable storage — so
+			// Start restarts an exited title instead of doing nothing. The
+			// reload reads the save the exited run wrote (에픽크로니클PE's
+			// gopt.sav), which is exactly what its "restart required" notice
+			// asks for.
+			if resetErr := machine.Reset(ctx); resetErr != nil {
+				err = resetErr
+				break
+			}
+		}
 		err = machine.Start(ctx)
 		if err == nil {
 			backend.setRunRequested(machineCanContinue(machine.State()))

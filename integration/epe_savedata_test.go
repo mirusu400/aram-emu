@@ -97,3 +97,80 @@ func TestEPESaveDataProductRelaunch(t *testing.T) {
 		t.Fatalf("run2 content=%d looks like the notice, not the title screen — save-data not restored", c)
 	}
 }
+
+// TestEPEStartRestartsExitedTitle covers the frontend's actual restart
+// workflow (there is no close/reopen — the user just presses Start again):
+// after the game exits on the first-run notice via MC_knlExit, pressing Start
+// must re-bootstrap the title and skip the notice, because the backend resets a
+// Stopped machine on Start and that reset preserves its writable storage.
+func TestEPEStartRestartsExitedTitle(t *testing.T) {
+	if os.Getenv("ARAM_EPE_REPRO") == "" {
+		t.Skip("ARAM_EPE_REPRO is not set")
+	}
+	gamePath := os.Getenv("ARAM_EPE_GAME")
+	if gamePath == "" {
+		t.Skip("ARAM_EPE_GAME is not set (path to 에픽크로니클PE.zip)")
+	}
+	if _, err := os.Stat(gamePath); err != nil {
+		t.Skipf("game unavailable: %v", err)
+	}
+	content := func(b *Backend) int {
+		frame := b.VideoFrame()
+		if frame.Image == nil {
+			return 0
+		}
+		bounds := frame.Image.Bounds()
+		count := 0
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				r, g, bl, _ := frame.Image.At(x, y).RGBA()
+				if r|g|bl != 0 {
+					count++
+				}
+			}
+		}
+		return count
+	}
+
+	b := NewBackend(nil)
+	b.stateRoot = t.TempDir()
+	defer b.Close()
+	if _, err := b.Open(context.Background(), frontend.OpenRequest{Path: gamePath}); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := b.Execute(context.Background(), frontend.CommandStart); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	for i := 0; i < 400; i++ {
+		if err := b.RunFrame(context.Background()); err != nil {
+			t.Fatalf("frame %d: %v", i, err)
+		}
+	}
+	_ = b.QueueInput(frontend.InputEvent{Control: "select", Pressed: true})
+	_ = b.QueueInput(frontend.InputEvent{Control: "select", Pressed: false, At: 100 * time.Millisecond})
+	for i := 0; i < 300 && b.State() != frontend.StateStopped; i++ {
+		if err := b.RunFrame(context.Background()); err != nil {
+			t.Fatalf("post-key frame %d: %v", i, err)
+		}
+	}
+	t.Logf("after confirm: state=%v", b.State())
+
+	// Frontend restart: pressing Start alone on the exited title must restart
+	// it (the backend re-bootstraps a Stopped machine), skipping the notice.
+	if b.State() != frontend.StateStopped {
+		t.Fatalf("expected StateStopped after MC_knlExit, got %v", b.State())
+	}
+	if err := b.Execute(context.Background(), frontend.CommandStart); err != nil {
+		t.Fatalf("restart start: %v", err)
+	}
+	for i := 0; i < 1000; i++ {
+		if err := b.RunFrame(context.Background()); err != nil {
+			t.Fatalf("restart frame %d: %v", i, err)
+		}
+	}
+	c := content(b)
+	t.Logf("after Start restart: state=%v content=%d", b.State(), c)
+	if c < 20000 {
+		t.Fatalf("content=%d after Start restart — still on the notice", c)
+	}
+}
