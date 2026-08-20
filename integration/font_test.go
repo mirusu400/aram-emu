@@ -45,7 +45,7 @@ func TestConfigureFontAppliesToFactory(t *testing.T) {
 		t.Fatalf("initial factory FallbackFont = %q, want empty (core default)", got)
 	}
 
-	for _, name := range []string{"neodgm", "galmuri9"} {
+	for _, name := range []string{"neodgm", "galmuri9", "mulmaru"} {
 		if err := backend.ConfigureFont(frontend.FontSettings{Name: name}); err != nil {
 			t.Fatalf("ConfigureFont(%q): %v", name, err)
 		}
