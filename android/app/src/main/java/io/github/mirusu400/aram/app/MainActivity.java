@@ -9,6 +9,7 @@ import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.LocaleList;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.view.View;
@@ -16,6 +17,8 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.Toast;
+
+import java.util.Locale;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -59,6 +62,10 @@ public final class MainActivity extends Activity
             );
         }
 
+        // The Go runtime sees none of Android's locale configuration, so the
+        // device language is handed over before the frontend reads its
+        // settings and picks a first-run default.
+        Mobile.configureLocale(deviceLanguageTag());
         Mobile.configureStorage(getFilesDir().getAbsolutePath());
         Mobile.setHost(this);
 
@@ -448,5 +455,27 @@ public final class MainActivity extends Activity
             this.file = file;
             this.displayName = displayName;
         }
+    }
+
+    private String deviceLanguageTag() {
+        Locale locale;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            LocaleList locales = getResources().getConfiguration().getLocales();
+            locale = locales.isEmpty() ? Locale.getDefault() : locales.get(0);
+        } else {
+            locale = getResources().getConfiguration().locale;
+        }
+        if (locale == null) {
+            return "";
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            return locale.toLanguageTag();
+        }
+        String language = locale.getLanguage();
+        String country = locale.getCountry();
+        if (country == null || country.isEmpty()) {
+            return language;
+        }
+        return language + "-" + country;
     }
 }

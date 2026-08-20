@@ -96,6 +96,15 @@ func init() {
 	mobile.SetGame(&game)
 }
 
+// ConfigureLocale declares the device language before the frontend loads user
+// settings, which is where the first-run default comes from. Android starts Go
+// without LANG or its relatives, so without this the shell would open in
+// English on a Korean handset. Call it before ConfigureStorage; a language the
+// user has already chosen is stored in settings and still wins.
+func ConfigureLocale(tag string) {
+	frontend.SetHostLocale(tag)
+}
+
 // ConfigureStorage sets an app-private root before the frontend loads user
 // settings. Android does not populate HOME or XDG_CONFIG_HOME for Go code.
 // Settings live below root/config and verified update packages below
