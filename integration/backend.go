@@ -19,6 +19,7 @@ import (
 	aramcore "github.com/mirusu400/aram-core/core"
 	"github.com/mirusu400/aram-core/cpu"
 	"github.com/mirusu400/aram-core/loader"
+	"github.com/mirusu400/aram-core/runtime"
 	"github.com/mirusu400/aram-frontend/frontend"
 )
 
@@ -39,6 +40,7 @@ type Backend struct {
 	input         frontend.InputInfo
 	stateRoot     string
 	audio         frontend.AudioSettings
+	fontChoice    string
 	runRequested  bool
 	lastFrameHash uint64
 	frameSequence uint64
@@ -102,7 +104,7 @@ func (backend *Backend) OpenWithProgress(
 	if progress != nil {
 		progress(frontend.OpenStageLoading)
 	}
-	machine, err := backend.factory.Create(ctx, source)
+	machine, err := backend.factoryForCreate().Create(ctx, source)
 	if err != nil {
 		_ = sourceFile.Close()
 		return info, backendError(classifyFactoryError(err, source.Format), err)
@@ -473,6 +475,46 @@ func (backend *Backend) ConfigureAudio(settings frontend.AudioSettings) error {
 	backend.audio = settings
 	backend.mu.Unlock()
 	return nil
+}
+
+// Backend serves the optional font-selection interface so the shell can switch
+// the handset fallback font.
+var _ frontend.FontBackend = (*Backend)(nil)
+
+// ConfigureFont records the handset fallback font selection. A built-in name is
+// stored directly; a user-supplied font file is built and registered once, and
+// its content-addressed name is stored instead. The choice is baked into the
+// core machine at creation, so it takes effect the next time a title is opened.
+func (backend *Backend) ConfigureFont(settings frontend.FontSettings) error {
+	name := settings.Name
+	if len(settings.Data) > 0 {
+		registered, err := runtime.RegisterHandsetFont(settings.Data)
+		if err != nil {
+			return err
+		}
+		name = registered
+	}
+	backend.mu.Lock()
+	backend.fontChoice = name
+	backend.mu.Unlock()
+	return nil
+}
+
+// factoryForCreate returns the factory used to build the next machine with the
+// current fallback-font selection applied. The default application.Factory is a
+// value type, so setting the field on the returned copy never mutates the
+// shared factory; injected factories that are not application.Factory are used
+// unchanged.
+func (backend *Backend) factoryForCreate() aramcore.Factory {
+	backend.mu.RLock()
+	factory := backend.factory
+	fontChoice := backend.fontChoice
+	backend.mu.RUnlock()
+	if concrete, ok := factory.(application.Factory); ok {
+		concrete.FallbackFont = fontChoice
+		return concrete
+	}
+	return factory
 }
 
 func (backend *Backend) DrainAudio() frontend.AudioChunk {

@@ -205,6 +205,43 @@ func (o *reObserver) Handle(call netauth.Call, mem netauth.Memory) (uint32, bool
 			o.lastEv = evStr
 		}
 	}
+	// Experiment: forge the connection handle + a constant response table so the
+	// SUCCESS branch runs — receive (sub_5764C) returns a chosen "done" state and
+	// the field getters return chosen result codes. Scratch lives high in the
+	// mapped stack region (well below SP) to avoid touching the heap.
+	if os.Getenv("AUTHD_RE_TABLE") != "" {
+		session, _ := mem.ReadU32(o.sessPtr)
+		if session != 0 {
+			const H = 0x7fff0000 // handle struct
+			const B = 0x7fff0100 // blob (base)
+			doneState, _ := parseHex(os.Getenv("AUTHD_RE_DONESTATE"))
+			result, _ := parseHex(os.Getenv("AUTHD_RE_RESULT"))
+			// handle: [0]=base, [3]=nCols(5)
+			_ = mem.WriteU32(H+0, B)
+			_ = mem.WriteU32(H+4, 0)
+			_ = mem.WriteU32(H+8, 0)
+			_ = mem.WriteU32(H+12, 5)
+			// offset array at B+8: col offsets arr[0..4], strides arr[5..9]=0
+			_ = mem.WriteU32(B+8+0, 0x42)  // col0 (result) -> B+0x42
+			_ = mem.WriteU32(B+8+4, 0x40)  // col1 (next state) -> B+0x40  (receive)
+			_ = mem.WriteU32(B+8+8, 0x44)  // col2 -> B+0x44
+			_ = mem.WriteU32(B+8+12, 0x46) // col3 -> B+0x46
+			_ = mem.WriteU32(B+8+16, 0x47) // col4 -> B+0x47
+			for i := 0; i < 5; i++ {
+				_ = mem.WriteU32(B+8+20+uint32(i)*4, 0) // strides 0
+			}
+			_ = mem.WriteU8(B+0x40, byte(doneState))
+			_ = mem.WriteU8(B+0x41, byte(doneState>>8))
+			_ = mem.WriteU8(B+0x42, byte(result))
+			_ = mem.WriteU8(B+0x44, 0)
+			_ = mem.WriteU8(B+0x45, 0)
+			_ = mem.WriteU8(B+0x46, 0)
+			_ = mem.WriteU8(B+0x47, 0)
+			// install handle; keep 0x5ADE0 FALSE so the receive path runs
+			_ = mem.WriteU32(session+0x570, H)
+			_ = mem.WriteU8(session+0x5D3, 0)
+		}
+	}
 	// Experiment: forge a "connected + authorized" session so sub_5ADE0 reports
 	// connected (state->300) and the event-check branch advances to state 21.
 	if os.Getenv("AUTHD_RE_CONNECT") != "" {
@@ -212,11 +249,19 @@ func (o *reObserver) Handle(call netauth.Call, mem netauth.Memory) (uint32, bool
 		if session != 0 {
 			_ = mem.WriteU8(session+0x5D3, 1) // event bit 69: connected
 			_ = mem.WriteU8(session+0x567, 2) // >1: data ready
-			_ = mem.WriteU8(session+0x58F, 1) // event bit 1
-			_ = mem.WriteU8(session+0x590, 1) // event bit 2
-			_ = mem.WriteU8(session+0x591, 1) // event bit 3
-			_ = mem.WriteU8(session+0x592, 0) // event bit 4 clear
-			_ = mem.WriteU8(session+0x589, 0) // gate flag clear
+			if os.Getenv("AUTHD_RE_BITS") == "789" {
+				_ = mem.WriteU8(session+0x595, 1) // event bit 7
+				_ = mem.WriteU8(session+0x596, 1) // event bit 8
+				_ = mem.WriteU8(session+0x597, 1) // event bit 9
+				_ = mem.WriteU8(session+0x598, 0) // event bit 10 clear
+				_ = mem.WriteU8(session+0x58A, 0) // gate flag clear
+			} else {
+				_ = mem.WriteU8(session+0x58F, 1) // event bit 1
+				_ = mem.WriteU8(session+0x590, 1) // event bit 2
+				_ = mem.WriteU8(session+0x591, 1) // event bit 3
+				_ = mem.WriteU8(session+0x592, 0) // event bit 4 clear
+				_ = mem.WriteU8(session+0x589, 0) // gate flag clear
+			}
 			if v := os.Getenv("AUTHD_RE_STATE"); v != "" {
 				n, _ := parseHex(v)
 				_ = mem.WriteU32(session+0x574, n) // force auth state

@@ -1,6 +1,8 @@
 package integration
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -124,6 +126,40 @@ func TestOrdinaryOpenMapsAndExecutesNativeEntry(t *testing.T) {
 	}
 }
 
+func TestOrdinaryOpenLoadsDirectWIPIZIPPackage(t *testing.T) {
+	jar := syntheticZIP(t, map[string][]byte{
+		"client.bin4096": syntheticKTFBootstrapClient(),
+	})
+	archive := syntheticZIP(t, map[string][]byte{
+		"01020304.jar": jar,
+		"__adf__": []byte(
+			"PID:PD000001\nAID:01020304\nMClass:GameMain\n",
+		),
+	})
+	path := filepath.Join(t.TempDir(), "synthetic.zip")
+	if err := os.WriteFile(path, archive, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	backend := NewBackend(nil)
+	t.Cleanup(func() { _ = backend.Close() })
+	info, err := backend.Open(
+		context.Background(),
+		frontend.OpenRequest{Path: path},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.DisplayName != "synthetic.zip" ||
+		info.Format != "ktf-wipi" ||
+		info.ProfileID != "wipi-1.2.1/ktf/generic" {
+		t.Fatalf("ZIP input info = %+v", info)
+	}
+	if backend.State() != frontend.StateReady {
+		t.Fatalf("ZIP state after open = %s", backend.State())
+	}
+}
+
 func TestBackendKeepsLogicalRunStateAcrossCoreFrameYields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "synthetic.dat")
 	if err := os.WriteFile(path, syntheticEADS(), 0o600); err != nil {
@@ -189,6 +225,10 @@ func (unavailablePicker) OpenFile() (string, error) {
 	return "", frontend.ErrPickerUnavailable
 }
 
+func (unavailablePicker) OpenFontFile() (string, error) {
+	return "", frontend.ErrPickerUnavailable
+}
+
 func (unavailablePicker) OpenFirmwareDirectory(string) (string, error) {
 	return "", frontend.ErrPickerUnavailable
 }
@@ -201,8 +241,45 @@ type pathPicker struct {
 	path string
 }
 
+// nonAdvancingBackend keeps frontend File/Open and command dispatch intact
+// while omitting FrameBackend so a product-path test can observe auto-start
+// before the guest advances beyond its deterministic entry diagnostics.
+type nonAdvancingBackend struct {
+	backend *Backend
+}
+
+func (adapter nonAdvancingBackend) Open(
+	ctx context.Context,
+	request frontend.OpenRequest,
+) (frontend.InputInfo, error) {
+	return adapter.backend.Open(ctx, request)
+}
+
+func (adapter nonAdvancingBackend) State() frontend.BackendState {
+	return adapter.backend.State()
+}
+
+func (adapter nonAdvancingBackend) Supports(command frontend.BackendCommand) bool {
+	return adapter.backend.Supports(command)
+}
+
+func (adapter nonAdvancingBackend) Execute(
+	ctx context.Context,
+	command frontend.BackendCommand,
+) error {
+	return adapter.backend.Execute(ctx, command)
+}
+
+func (adapter nonAdvancingBackend) Close() error {
+	return adapter.backend.Close()
+}
+
 func (picker pathPicker) OpenFile() (string, error) {
 	return picker.path, nil
+}
+
+func (pathPicker) OpenFontFile() (string, error) {
+	return "", frontend.ErrPickerUnavailable
 }
 
 func (pathPicker) OpenFirmwareDirectory(string) (string, error) {
@@ -347,19 +424,24 @@ func TestMagicholeReferenceUsesOrdinaryProductPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", temporary)
 	backend := NewBackend(nil)
 	defer backend.Close()
-	shell := frontend.NewShell(backend, pathPicker{path: path}, "")
+	shell := frontend.NewShell(
+		nonAdvancingBackend{backend: backend},
+		pathPicker{path: path},
+		"",
+	)
 	shell.DispatchExternalCommand("file.open")
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if err := shell.Update(); err != nil {
 			t.Fatal(err)
 		}
-		if backend.State() == frontend.StateReady {
+		if backend.State() == frontend.StateRunning &&
+			backend.Diagnostics().EADS != nil {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if backend.State() != frontend.StateReady {
+	if backend.State() != frontend.StateRunning {
 		t.Fatalf("reference File/Open state = %s", backend.State())
 	}
 	backend.mu.RLock()
@@ -369,9 +451,6 @@ func TestMagicholeReferenceUsesOrdinaryProductPath(t *testing.T) {
 		info.ProfileID != "wipi-1.2.1/skt/samsung/sch-w830/minigame-qvga-oem" ||
 		len(info.SHA256) != 64 {
 		t.Fatalf("reference input info = %+v", info)
-	}
-	if err := backend.Execute(context.Background(), frontend.CommandStart); err != nil {
-		t.Fatal(err)
 	}
 	diagnostics := backend.Diagnostics()
 	if diagnostics.EADS == nil ||
@@ -408,4 +487,45 @@ func syntheticEADS() []byte {
 		0xfe, 0xe7,
 	})
 	return data
+}
+
+func syntheticZIP(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+	var output bytes.Buffer
+	writer := zip.NewWriter(&output)
+	for name, data := range files {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write(data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return output.Bytes()
+}
+
+func syntheticKTFBootstrapClient() []byte {
+	const imageBase = uint32(0x00100000)
+	client := make([]byte, 0x200)
+	copy(client, []byte{
+		0x00, 0x48, // ldr r0, [pc, #0]
+		0x70, 0x47, // bx lr
+	})
+	binary.LittleEndian.PutUint32(client[4:8], imageBase+0x100)
+	copy(client[0x20:], []byte{
+		0x00, 0x20, // movs r0, #0
+		0x70, 0x47, // bx lr
+	})
+	binary.LittleEndian.PutUint32(client[0x100:], imageBase+0x140)
+	binary.LittleEndian.PutUint32(client[0x104:], imageBase+0x180)
+	binary.LittleEndian.PutUint32(client[0x114:], (imageBase+0x20)|1)
+	binary.LittleEndian.PutUint32(client[0x140:], imageBase+0x160)
+	binary.LittleEndian.PutUint32(client[0x168:], (imageBase+0x20)|1)
+	binary.LittleEndian.PutUint32(client[0x170:], (imageBase+0x20)|1)
+	copy(client[0x180:], "SyntheticKTF\x00")
+	return client
 }
