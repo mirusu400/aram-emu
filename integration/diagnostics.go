@@ -22,6 +22,7 @@ type ImageDiagnostics struct {
 	Name        string
 	ProfileID   string
 	SourceKind  string
+	CPUBackend  string
 	EntryPoint  uint32
 	Mode        string
 	TextAddress uint32
@@ -90,6 +91,7 @@ func (backend *Backend) Diagnostics() Diagnostics {
 			Name:        info.Name,
 			ProfileID:   info.ProfileID,
 			SourceKind:  string(info.SourceKind),
+			CPUBackend:  info.CPUBackend,
 			EntryPoint:  info.EntryPoint,
 			Mode:        modeName(info.Mode),
 			TextAddress: info.TextAddress,

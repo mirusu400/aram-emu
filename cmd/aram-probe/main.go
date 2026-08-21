@@ -50,6 +50,7 @@ type imageResult struct {
 	Name       string `json:"name"`
 	EntryPoint string `json:"entry_point"`
 	Mode       string `json:"mode"`
+	CPUBackend string `json:"cpu_backend,omitempty"`
 }
 
 type executionResult struct {
@@ -376,6 +377,7 @@ func copyDiagnostics(result *probeResult, diagnostics integration.Diagnostics) {
 			Name:       diagnostics.Image.Name,
 			EntryPoint: fmt.Sprintf("0x%08x", diagnostics.Image.EntryPoint),
 			Mode:       diagnostics.Image.Mode,
+			CPUBackend: diagnostics.Image.CPUBackend,
 		}
 	}
 	if diagnostics.Execution != nil {
