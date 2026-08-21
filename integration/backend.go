@@ -41,6 +41,7 @@ type Backend struct {
 	stateRoot     string
 	audio         frontend.AudioSettings
 	fontChoice    string
+	cpuChoice     string
 	runRequested  bool
 	lastFrameHash uint64
 	// lastFramePixels retains the last published frame so the next one can be
@@ -512,6 +513,30 @@ func (backend *Backend) ConfigureFont(settings frontend.FontSettings) error {
 	return nil
 }
 
+// ConfigureCPU records the CPU backend selection. An empty name keeps the
+// default (the ARAM_CPU environment selection, or the precise interpreter); a
+// known registered name is stored and baked into the next machine created, so
+// it takes effect the next time a title is opened. An unknown name is rejected.
+func (backend *Backend) ConfigureCPU(settings frontend.CPUSettings) error {
+	name := settings.Name
+	if name != "" {
+		if _, err := application.ResolveCPUBackend(name); err != nil {
+			return err
+		}
+	}
+	backend.mu.Lock()
+	backend.cpuChoice = name
+	backend.mu.Unlock()
+	return nil
+}
+
+// AvailableCPUBackends lists the selectable CPU backend names for the settings
+// dropdown. Only the precise interpreter is present until a fast/native core
+// registers itself.
+func (backend *Backend) AvailableCPUBackends() []string {
+	return application.CPUBackendNames()
+}
+
 // factoryForCreate returns the factory used to build the next machine with the
 // current fallback-font selection applied. The default application.Factory is a
 // value type, so setting the field on the returned copy never mutates the
@@ -521,9 +546,18 @@ func (backend *Backend) factoryForCreate() aramcore.Factory {
 	backend.mu.RLock()
 	factory := backend.factory
 	fontChoice := backend.fontChoice
+	cpuChoice := backend.cpuChoice
 	backend.mu.RUnlock()
 	if concrete, ok := factory.(application.Factory); ok {
 		concrete.FallbackFont = fontChoice
+		// A frontend CPU selection overrides the factory default (which already
+		// reflects the ARAM_CPU environment); an unknown name is ignored so the
+		// default core still runs.
+		if cpuChoice != "" {
+			if newCPU, err := application.ResolveCPUBackend(cpuChoice); err == nil {
+				concrete.NewCPU = newCPU
+			}
+		}
 		return concrete
 	}
 	return factory
