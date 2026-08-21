@@ -43,7 +43,13 @@ type Backend struct {
 	fontChoice    string
 	runRequested  bool
 	lastFrameHash uint64
-	frameSequence uint64
+	// lastFramePixels retains the last published frame so the next one can be
+	// compared against it exactly instead of hashed.
+	lastFramePixels []byte
+	// lastPresentation is the core presentation sequence the published frame
+	// came from, for backends that report one.
+	lastPresentation uint64
+	frameSequence    uint64
 
 	imageSHA256        string
 	cheatStore         *cheatCatalogStore
@@ -147,6 +153,8 @@ func (backend *Backend) OpenWithProgress(
 	backend.input = info
 	backend.runRequested = false
 	backend.lastFrameHash = 0
+	backend.lastFramePixels = nil
+	backend.lastPresentation = 0
 	backend.frameSequence = 0
 	backend.cheats = library
 	backend.cheatUnavailable = cheatUnavailable
@@ -440,15 +448,19 @@ func (backend *Backend) VideoFrame() frontend.VideoFrame {
 	if machine == nil {
 		return frontend.VideoFrame{}
 	}
+	if presenter, ok := machine.(coreFramePresenter); ok {
+		return backend.presentedVideoFrame(presenter)
+	}
 	frame := machine.Framebuffer()
 	if frame == nil || frame.Bounds().Dx() <= 0 || frame.Bounds().Dy() <= 0 {
 		return frontend.VideoFrame{}
 	}
-	fingerprint := frameFingerprint(frame)
 	backend.mu.Lock()
-	if backend.frameSequence == 0 || fingerprint != backend.lastFrameHash {
+	// frameChanged always runs, even for the first frame, so the comparison
+	// baseline is recorded before the next tick reads it.
+	changed := backend.frameChanged(frame)
+	if backend.frameSequence == 0 || changed {
 		backend.frameSequence++
-		backend.lastFrameHash = fingerprint
 	}
 	sequence := backend.frameSequence
 	backend.mu.Unlock()
@@ -623,6 +635,8 @@ func (backend *Backend) Close() error {
 	backend.input = frontend.InputInfo{}
 	backend.runRequested = false
 	backend.lastFrameHash = 0
+	backend.lastFramePixels = nil
+	backend.lastPresentation = 0
 	backend.frameSequence = 0
 	backend.cheats = nil
 	backend.cheatUnavailable = ""
