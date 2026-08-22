@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">ARAM Nightly</string>
     <string name="import_failed">파일을 열 수 없습니다: %1$s</string>
+    <string name="text_input_title">입력</string>
 </resources>

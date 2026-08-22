@@ -77,6 +77,10 @@ type Host interface {
 	// installer could not be opened; the installation itself finishes
 	// outside the app.
 	InstallPackage(path string) error
+	// RequestTextInput presents the platform text editor for one form field.
+	// Ebitengine raises no soft keyboard on a handset, so the host types the
+	// text and answers once with SubmitTextInput or CancelTextInput.
+	RequestTextInput(requestID int64, label, hint, text string)
 }
 
 var hostBridge struct {
@@ -123,13 +127,30 @@ func ConfigureStorage(root string) {
 	game.instance()
 }
 
-// SetHost connects the platform picker and package installer to the active
-// native Activity.
+// SetHost connects the platform picker, package installer, and text editor to
+// the active native Activity.
 func SetHost(host Host) {
 	hostBridge.Lock()
 	hostBridge.host = host
 	hostBridge.Unlock()
+	if host == nil {
+		frontend.SetNativePickerHost(nil)
+		frontend.SetNativeTextInputHost(nil)
+		return
+	}
 	frontend.SetNativePickerHost(host)
+	frontend.SetNativeTextInputHost(host)
+}
+
+// SubmitTextInput reports the text the native editor accepted for the field
+// identified by requestID.
+func SubmitTextInput(requestID int64, text string) {
+	frontend.SubmitNativeTextInput(requestID, text)
+}
+
+// CancelTextInput reports that the native editor was dismissed unchanged.
+func CancelTextInput(requestID int64) {
+	frontend.CancelNativeTextInput(requestID)
 }
 
 // OpenDocument opens a package imported by the native host.

@@ -1,6 +1,7 @@
 package io.github.mirusu400.aram.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ContentResolver;
 import android.content.Intent;
 import android.database.Cursor;
@@ -12,10 +13,16 @@ import android.os.Build;
 import android.os.LocaleList;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
+import android.text.InputType;
 import android.view.View;
+import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import java.util.Locale;
@@ -45,6 +52,7 @@ public final class MainActivity extends Activity
     private final ExecutorService importExecutor = Executors.newSingleThreadExecutor();
 
     private EbitenView gameView;
+    private AlertDialog textInputDialog;
     private AudioManager audioManager;
     private AudioFocusRequest audioFocusRequest;
     private boolean pendingFirmware;
@@ -110,6 +118,138 @@ public final class MainActivity extends Activity
             );
             startActivityForResult(intent, REQUEST_DOCUMENT);
         });
+    }
+
+    /**
+     * Presents the platform text editor for one frontend form field.
+     * Ebitengine never raises the soft keyboard for its own surface, so a
+     * field such as the issue report form is typed in a native dialog where
+     * the system IME - Hangul composition and the clipboard included - is
+     * available. Exactly one answer goes back per request.
+     */
+    @Override
+    public void requestTextInput(
+            long requestID,
+            String label,
+            String hint,
+            String text
+    ) {
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) {
+                Mobile.cancelTextInput(requestID);
+                return;
+            }
+            showTextInputDialog(requestID, label, hint, text);
+        });
+    }
+
+    private void showTextInputDialog(
+            long requestID,
+            String label,
+            String hint,
+            String text
+    ) {
+        if (textInputDialog != null) {
+            // The frontend abandons an older request when it opens another
+            // field, so the stale dialog only has to disappear.
+            textInputDialog.dismiss();
+            textInputDialog = null;
+        }
+
+        EditText editor = new EditText(this);
+        editor.setSingleLine(true);
+        editor.setInputType(InputType.TYPE_CLASS_TEXT);
+        editor.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        if (hint != null && !hint.isEmpty()) {
+            editor.setHint(hint);
+        }
+        editor.setText(text == null ? "" : text);
+        editor.setSelection(editor.getText().length());
+
+        int inset = Math.round(20 * getResources().getDisplayMetrics().density);
+        FrameLayout frame = new FrameLayout(this);
+        frame.setPadding(inset, inset / 2, inset, 0);
+        frame.addView(editor);
+
+        String title = label == null || label.isEmpty()
+                ? getString(R.string.text_input_title)
+                : label;
+        boolean[] answered = {false};
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(frame)
+                .setPositiveButton(android.R.string.ok, (target, which) -> {
+                    answered[0] = true;
+                    Mobile.submitTextInput(
+                            requestID,
+                            editor.getText().toString()
+                    );
+                })
+                .setNegativeButton(android.R.string.cancel, (target, which) -> {
+                    answered[0] = true;
+                    Mobile.cancelTextInput(requestID);
+                })
+                .create();
+        dialog.setOnDismissListener(target -> {
+            // A back press or a tap outside answers the request too;
+            // otherwise the frontend field would wait forever.
+            if (!answered[0]) {
+                Mobile.cancelTextInput(requestID);
+            }
+            if (textInputDialog == target) {
+                textInputDialog = null;
+            }
+            restoreGameFocus();
+        });
+        editor.setOnEditorActionListener((view, actionID, event) -> {
+            if (actionID != EditorInfo.IME_ACTION_DONE) {
+                return false;
+            }
+            answered[0] = true;
+            Mobile.submitTextInput(requestID, editor.getText().toString());
+            dialog.dismiss();
+            return true;
+        });
+
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setSoftInputMode(
+                    WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+            );
+        }
+        dialog.show();
+        textInputDialog = dialog;
+        editor.requestFocus();
+        showSoftKeyboard(editor);
+    }
+
+    // The activity runs immersive, and a dialog that takes focus away from a
+    // fullscreen window does not always get the keyboard from
+    // SOFT_INPUT_STATE_ALWAYS_VISIBLE alone. Asking once more after the
+    // window is laid out covers that case.
+    private void showSoftKeyboard(EditText editor) {
+        InputMethodManager manager =
+                (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (manager == null) {
+            return;
+        }
+        editor.postDelayed(
+                () -> manager.showSoftInput(
+                        editor,
+                        InputMethodManager.SHOW_IMPLICIT
+                ),
+                100
+        );
+    }
+
+    private void restoreGameFocus() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        enterImmersiveMode();
+        if (gameView != null) {
+            gameView.requestFocus();
+        }
     }
 
     /**
@@ -242,6 +382,10 @@ public final class MainActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        if (textInputDialog != null) {
+            textInputDialog.dismiss();
+            textInputDialog = null;
+        }
         Mobile.setHost(null);
         importExecutor.shutdownNow();
         super.onDestroy();
