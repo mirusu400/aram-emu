@@ -487,6 +487,14 @@ func (backend *Backend) ConfigureAudio(settings frontend.AudioSettings) error {
 	backend.mu.Lock()
 	backend.audio = settings
 	backend.mu.Unlock()
+	// The mix-mode policy applies live so an A/B comparison does not require
+	// reopening the title; a machine that predates this method simply misses the
+	// live update and picks the policy up when next created.
+	if machine := backend.currentMachine(); machine != nil {
+		if setter, ok := machine.(interface{ SetAudioMixMode(bool) }); ok {
+			setter.SetAudioMixMode(settings.MixMode)
+		}
+	}
 	return nil
 }
 
@@ -547,9 +555,11 @@ func (backend *Backend) factoryForCreate() aramcore.Factory {
 	factory := backend.factory
 	fontChoice := backend.fontChoice
 	cpuChoice := backend.cpuChoice
+	audioMixMode := backend.audio.MixMode
 	backend.mu.RUnlock()
 	if concrete, ok := factory.(application.Factory); ok {
 		concrete.FallbackFont = fontChoice
+		concrete.AudioMixMode = audioMixMode
 		// A frontend CPU selection overrides the factory default (which already
 		// reflects the ARAM_CPU environment); an unknown name is ignored so the
 		// default core still runs.
