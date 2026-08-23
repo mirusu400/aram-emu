@@ -17,7 +17,12 @@ type coreFrameQuantumReporter interface {
 // this rate to run a title at handset speed, and the rate is not the same for
 // every runtime.
 func (backend *Backend) FrameQuantum() time.Duration {
-	machine := backend.currentMachine()
+	// The published machine is the cheat wrapper, which forwards the machine
+	// contract but not the optional reporting interfaces, so the quantum has to
+	// be read from the core machine underneath it. Reading it through the
+	// wrapper silently returned the native-WIPI fallback for every title and
+	// paced KTF titles four percent fast.
+	machine := unwrapMachine(backend.currentMachine())
 	if machine == nil {
 		return defaultFrameQuantum
 	}
