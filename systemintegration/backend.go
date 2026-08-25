@@ -431,6 +431,14 @@ func (backend *Backend) QueueInput(event frontend.InputEvent) error {
 	control := systemControl(event.Control)
 	backend.mu.RLock()
 	supported := backend.controls[control]
+	// Feature-phone menus are normally reached through the left soft button,
+	// while the shared frontend also exposes an abstract MENU control for
+	// application runtimes. Use the physical soft button only when a board has
+	// no distinct menu key of its own.
+	if !supported && control == "menu" && backend.controls["soft-left"] {
+		control = "soft-left"
+		supported = true
+	}
 	backend.mu.RUnlock()
 	if !supported {
 		return fmt.Errorf("firmware board profile does not expose control %q yet", event.Control)
