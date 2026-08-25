@@ -197,6 +197,17 @@ func TestBackendOpensFirmwareDirectoryRunsFramesAndMapsControls(t *testing.T) {
 	}
 }
 
+func TestBackendDefaultsToPortableJIT(t *testing.T) {
+	backend := NewBackend(Options{})
+	if got := backend.options.CPUBackendMode; got != systemmachine.CPUBackendJIT {
+		t.Fatalf("default CPU backend = %q, want %q", got, systemmachine.CPUBackendJIT)
+	}
+	precise := NewBackend(Options{CPUBackendMode: systemmachine.CPUBackendPrecise})
+	if got := precise.options.CPUBackendMode; got != systemmachine.CPUBackendPrecise {
+		t.Fatalf("explicit CPU backend = %q, want %q", got, systemmachine.CPUBackendPrecise)
+	}
+}
+
 func TestFirmwareContentIDIgnoresPieceOrder(t *testing.T) {
 	first, err := firmwareset.NewSet([]firmwareset.Source{
 		{ReaderAt: bytes.NewReader([]byte("alpha")), Size: 5},

@@ -61,6 +61,7 @@ type machineFactory func(firmwareset.Set, systemmachine.Options) (systemMachine,
 type Options struct {
 	InstructionsPerFrame     uint64
 	MinimumInputInstructions uint64
+	CPUBackendMode           systemmachine.CPUBackendMode
 	MediaRoot                string
 	DisableMediaPersistence  bool
 
@@ -100,6 +101,9 @@ func NewBackend(options Options) *Backend {
 	}
 	if options.MinimumInputInstructions == 0 {
 		options.MinimumInputInstructions = DefaultMinimumInputInstructions
+	}
+	if options.CPUBackendMode == "" {
+		options.CPUBackendMode = systemmachine.CPUBackendJIT
 	}
 	if options.newMachine == nil {
 		options.newMachine = func(set firmwareset.Set, options systemmachine.Options) (systemMachine, error) {
@@ -146,7 +150,9 @@ func (backend *Backend) OpenWithProgress(
 	if progress != nil {
 		progress(frontend.OpenStageLoading)
 	}
-	machine, err := backend.options.newMachine(set, systemmachine.Options{})
+	machine, err := backend.options.newMachine(set, systemmachine.Options{
+		BackendMode: backend.options.CPUBackendMode,
+	})
 	if err != nil {
 		closeFiles()
 		kind := frontend.FailureUnsupportedProfile

@@ -6,6 +6,9 @@ param(
 
     [UInt64]$InstructionsPerFrame = 1000000,
 
+    [ValidateSet("jit", "precise")]
+    [string]$CPUBackend = "jit",
+
     [switch]$NoMediaPersistence
 )
 
@@ -46,6 +49,7 @@ try {
         "-tags=system_firmware",
         "./cmd/aram-system",
         "-instructions-per-frame", $InstructionsPerFrame,
+        "-cpu", $CPUBackend,
         $firmwareRoot
     )
     if ($NoMediaPersistence) {
@@ -54,6 +58,7 @@ try {
             "-tags=system_firmware",
             "./cmd/aram-system",
             "-instructions-per-frame", $InstructionsPerFrame,
+            "-cpu", $CPUBackend,
             "-no-media-persistence",
             $firmwareRoot
         )
