@@ -105,9 +105,10 @@ func TestBackendOpensFirmwareDirectoryRunsFramesAndMapsControls(t *testing.T) {
 	}
 	machine := newFakeSystemMachine()
 	backend := NewBackend(Options{
-		InstructionsPerFrame:    25,
-		MediaRoot:               t.TempDir(),
-		DisableMediaPersistence: true,
+		InstructionsPerFrame:     25,
+		MinimumInputInstructions: 50,
+		MediaRoot:                t.TempDir(),
+		DisableMediaPersistence:  true,
 		newMachine: func(set firmwareset.Set, _ systemmachine.Options) (systemMachine, error) {
 			if set.Len() != 4 {
 				t.Fatalf("firmware pieces = %d, want 4", set.Len())
@@ -148,6 +149,24 @@ func TestBackendOpensFirmwareDirectoryRunsFramesAndMapsControls(t *testing.T) {
 	}
 	if machine.lastControl != "digit-1" || !machine.lastPressed {
 		t.Fatalf("mapped input = %q/%t", machine.lastControl, machine.lastPressed)
+	}
+	if err := backend.QueueInput(frontend.InputEvent{Control: "num1", Pressed: false}); err != nil {
+		t.Fatal(err)
+	}
+	if !machine.lastPressed {
+		t.Fatal("short input pulse was released before its minimum guest duration")
+	}
+	if err := backend.RunFrame(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !machine.lastPressed {
+		t.Fatal("input was released one frame before its minimum guest duration")
+	}
+	if err := backend.RunFrame(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if machine.lastControl != "digit-1" || machine.lastPressed {
+		t.Fatalf("deferred input release = %q/%t", machine.lastControl, machine.lastPressed)
 	}
 	if err := backend.QueueInput(frontend.InputEvent{Control: "hash", Pressed: true}); err != nil {
 		t.Fatal(err)
@@ -226,6 +245,42 @@ func TestMediaFileRoundTripAndChecksum(t *testing.T) {
 	}
 	if _, err := readMediaFile(path); err == nil {
 		t.Fatal("tampered media checksum was accepted")
+	}
+}
+
+func TestBackendClosePersistsMediaBeforeClearingContentIdentity(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "phone.wbt"), []byte("boot"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mediaRoot := t.TempDir()
+	machine := newFakeSystemMachine()
+	backend := NewBackend(Options{
+		MediaRoot: mediaRoot,
+		newMachine: func(firmwareset.Set, systemmachine.Options) (systemMachine, error) {
+			return machine, nil
+		},
+	})
+	if _, err := backend.Open(context.Background(), frontend.OpenRequest{Path: directory}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Close(); err != nil {
+		t.Fatal(err)
+	}
+	mediaFiles, err := filepath.Glob(filepath.Join(mediaRoot, "*.arammedia"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mediaFiles) != 1 {
+		t.Fatalf("persistent media files = %v, want exactly one", mediaFiles)
+	}
+	got, err := readMediaFile(mediaFiles[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.FirmwareBuildID != machine.media.FirmwareBuildID ||
+		!bytes.Equal(got.Flash, machine.media.Flash) || !bytes.Equal(got.NAND, machine.media.NAND) {
+		t.Fatalf("persisted close media = %+v, want %+v", got, machine.media)
 	}
 }
 

@@ -27,10 +27,11 @@ import (
 )
 
 const (
-	DefaultInstructionsPerFrame = uint64(1_000_000)
-	mediaSchemaVersion          = uint32(1)
-	maxMediaBuildIDBytes        = uint32(4 * 1024)
-	maxMediaSectionBytes        = uint64(2 << 30)
+	DefaultInstructionsPerFrame     = uint64(1_000_000)
+	DefaultMinimumInputInstructions = uint64(7_000_000)
+	mediaSchemaVersion              = uint32(1)
+	maxMediaBuildIDBytes            = uint32(4 * 1024)
+	maxMediaSectionBytes            = uint64(2 << 30)
 )
 
 var mediaMagic = []byte("ARAMSYSMEDIA\x00")
@@ -53,12 +54,15 @@ type systemMachine interface {
 type machineFactory func(firmwareset.Set, systemmachine.Options) (systemMachine, error)
 
 // Options controls host integration policy rather than emulated hardware.
-// MediaRoot is primarily useful to portable packages and tests; an empty root
-// uses the operating system's per-user configuration directory.
+// MinimumInputInstructions prevents a normal host click from disappearing
+// between the much slower guest keypad scans. MediaRoot is primarily useful
+// to portable packages and tests; an empty root uses the operating system's
+// per-user configuration directory.
 type Options struct {
-	InstructionsPerFrame    uint64
-	MediaRoot               string
-	DisableMediaPersistence bool
+	InstructionsPerFrame     uint64
+	MinimumInputInstructions uint64
+	MediaRoot                string
+	DisableMediaPersistence  bool
 
 	newMachine machineFactory
 }
@@ -80,18 +84,34 @@ type Backend struct {
 	controls      map[string]bool
 	frameHash     string
 	frameSequence uint64
+	inputSources  map[string]string
+	inputHolds    map[string]inputHold
+}
+
+type inputHold struct {
+	sources        int
+	releaseAfter   uint64
+	releasePending bool
 }
 
 func NewBackend(options Options) *Backend {
 	if options.InstructionsPerFrame == 0 {
 		options.InstructionsPerFrame = DefaultInstructionsPerFrame
 	}
+	if options.MinimumInputInstructions == 0 {
+		options.MinimumInputInstructions = DefaultMinimumInputInstructions
+	}
 	if options.newMachine == nil {
 		options.newMachine = func(set firmwareset.Set, options systemmachine.Options) (systemMachine, error) {
 			return systemmachine.New(set, options)
 		}
 	}
-	return &Backend{options: options, state: frontend.StateEmpty}
+	return &Backend{
+		options:      options,
+		state:        frontend.StateEmpty,
+		inputSources: make(map[string]string),
+		inputHolds:   make(map[string]inputHold),
+	}
 }
 
 func (backend *Backend) BackendName() string { return "aram-core system machine" }
@@ -165,6 +185,7 @@ func (backend *Backend) OpenWithProgress(
 	backend.controls = controls
 	backend.frameHash = ""
 	backend.frameSequence = 0
+	backend.resetInputState()
 	backend.mu.Unlock()
 
 	if oldMachine != nil {
@@ -349,6 +370,7 @@ func (backend *Backend) ExecuteCommand(
 	case frontend.CommandReset:
 		err = machine.PowerCycle()
 		if err == nil {
+			backend.resetInputState()
 			backend.setState(frontend.StateReady)
 			backend.resetFrameIdentity()
 		}
@@ -389,6 +411,9 @@ func (backend *Backend) runMachineFrameContext(ctx context.Context, machine syst
 	if result.Err != nil {
 		return result.Err
 	}
+	if err := backend.flushInputReleases(machine); err != nil {
+		return err
+	}
 	switch result.Reason {
 	case cpu.StopBudget:
 		return nil
@@ -424,6 +449,9 @@ func (backend *Backend) VideoFrame() frontend.VideoFrame {
 }
 
 func (backend *Backend) QueueInput(event frontend.InputEvent) error {
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+
 	machine := backend.currentMachine()
 	if machine == nil {
 		return systemBackendError(frontend.FailureBackendUnavailable, errors.New("no system machine is loaded"))
@@ -443,10 +471,79 @@ func (backend *Backend) QueueInput(event frontend.InputEvent) error {
 	if !supported {
 		return fmt.Errorf("firmware board profile does not expose control %q yet", event.Control)
 	}
-	if err := machine.SetKey(control, event.Pressed); err != nil {
+	if event.Pressed {
+		if _, alreadyPressed := backend.inputSources[event.Control]; alreadyPressed {
+			return nil
+		}
+		hold := backend.inputHolds[control]
+		if hold.sources == 0 {
+			if err := machine.SetKey(control, true); err != nil {
+				return systemBackendError(frontend.FailureUnknown, err)
+			}
+		}
+		hold.sources++
+		hold.releasePending = false
+		releaseAfter := addSaturating(
+			machine.Position().Instructions,
+			backend.options.MinimumInputInstructions,
+		)
+		if releaseAfter > hold.releaseAfter {
+			hold.releaseAfter = releaseAfter
+		}
+		backend.inputSources[event.Control] = control
+		backend.inputHolds[control] = hold
+		return nil
+	}
+
+	pressedControl, wasPressed := backend.inputSources[event.Control]
+	if !wasPressed {
+		return nil
+	}
+	delete(backend.inputSources, event.Control)
+	hold := backend.inputHolds[pressedControl]
+	if hold.sources > 0 {
+		hold.sources--
+	}
+	if hold.sources > 0 {
+		backend.inputHolds[pressedControl] = hold
+		return nil
+	}
+	if machine.Position().Instructions < hold.releaseAfter {
+		hold.releasePending = true
+		backend.inputHolds[pressedControl] = hold
+		return nil
+	}
+	if err := machine.SetKey(pressedControl, false); err != nil {
 		return systemBackendError(frontend.FailureUnknown, err)
 	}
+	delete(backend.inputHolds, pressedControl)
 	return nil
+}
+
+func (backend *Backend) flushInputReleases(machine systemMachine) error {
+	position := machine.Position().Instructions
+	for control, hold := range backend.inputHolds {
+		if hold.sources != 0 || !hold.releasePending || position < hold.releaseAfter {
+			continue
+		}
+		if err := machine.SetKey(control, false); err != nil {
+			return systemBackendError(frontend.FailureUnknown, err)
+		}
+		delete(backend.inputHolds, control)
+	}
+	return nil
+}
+
+func (backend *Backend) resetInputState() {
+	clear(backend.inputSources)
+	clear(backend.inputHolds)
+}
+
+func addSaturating(left, right uint64) uint64 {
+	if ^uint64(0)-left < right {
+		return ^uint64(0)
+	}
+	return left + right
 }
 
 func systemControl(control string) string {
@@ -496,8 +593,17 @@ func (backend *Backend) Close() error {
 	backend.operationMu.Lock()
 	defer backend.operationMu.Unlock()
 
-	backend.mu.Lock()
+	backend.mu.RLock()
 	machine := backend.machine
+	backend.mu.RUnlock()
+	var errs []error
+	if machine != nil {
+		// Persist while contentID is still available. Clearing the backend first
+		// silently skipped media saving on ordinary window close.
+		errs = append(errs, backend.persistCurrentMedia(machine))
+	}
+
+	backend.mu.Lock()
 	files := backend.firmwareFiles
 	backend.machine = nil
 	backend.firmwareFiles = nil
@@ -508,11 +614,10 @@ func (backend *Backend) Close() error {
 	backend.controls = nil
 	backend.frameHash = ""
 	backend.frameSequence = 0
+	backend.resetInputState()
 	backend.mu.Unlock()
 
-	var errs []error
 	if machine != nil {
-		errs = append(errs, backend.persistCurrentMedia(machine))
 		errs = append(errs, machine.Close())
 	}
 	for _, file := range files {
