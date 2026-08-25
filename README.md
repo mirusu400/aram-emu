@@ -71,6 +71,37 @@ go run ./cmd/aram
 go run ./cmd/aram path\to\authorized-input.dat
 ```
 
+### Experimental whole-phone firmware runner
+
+The `system_firmware` build exposes the whole-phone backend without changing
+the default application-mode product. It accepts an extracted directory of
+Samsung download pieces (`.wbt`, `.wbin`, `.dat`, and `.fnt`), verifies every
+piece, selects an exact firmware and board profile in `aram-core`, and sends
+the phone's native framebuffer and keypad events through the shared frontend.
+No firmware bytes are copied into an ARAM repository.
+
+While the system-machine API is developed in a sibling core checkout, the
+PowerShell launcher creates a temporary Go workspace overlay for it:
+
+```powershell
+.\scripts\run-system-firmware.ps1 `
+  -FirmwarePath 'C:\path\to\extracted\SCH-W830_DL21' `
+  -CorePath '..\aram-core-magichole-system'
+```
+
+The default core path is already `..\aram-core-magichole-system`, so `-CorePath`
+may be omitted when the sibling checkout uses that name. The phone starts
+automatically after loading. On a new writable NAND, let the factory setup
+finish, use `Ctrl+R` to power-cycle while preserving that NAND, and press `F5`
+to start the cold boot. The writable NAND is saved below the user's ARAM
+configuration directory when the input or application is closed. Pass
+`-NoMediaPersistence` for a disposable run.
+
+Current exact profiles are SCH-W830 DL21/DA18 and SCH-W860 DA06. W830 exposes
+the evidenced soft keys, OK, and numeric keypad; directional/back/menu wiring
+and W860 keypad input remain board-profile work. Unknown builds fail explicitly
+instead of borrowing another handset's hardware profile.
+
 To build an icon-bearing Windows executable locally, prepare its resource
 object before the ordinary build:
 
