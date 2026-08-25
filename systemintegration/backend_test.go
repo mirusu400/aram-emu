@@ -53,7 +53,10 @@ func (machine *fakeSystemMachine) Identity() systemmachine.Identity {
 
 func (machine *fakeSystemMachine) Position() systemmachine.Position { return machine.position }
 func (machine *fakeSystemMachine) Controls() []string {
-	return []string{"soft-left", "soft-right", "ok", "digit-0", "digit-1", "pound"}
+	return []string{
+		"soft-left", "soft-right", "up", "down", "left", "right", "ok", "back",
+		"digit-0", "digit-1", "pound",
+	}
 }
 func (machine *fakeSystemMachine) Run(_ context.Context, budget uint64) cpu.Result {
 	machine.position.Instructions += budget
@@ -152,7 +155,25 @@ func TestBackendOpensFirmwareDirectoryRunsFramesAndMapsControls(t *testing.T) {
 	if machine.lastControl != "pound" {
 		t.Fatalf("hash mapped to %q", machine.lastControl)
 	}
-	if err := backend.QueueInput(frontend.InputEvent{Control: "up", Pressed: true}); err == nil {
+	if err := backend.QueueInput(frontend.InputEvent{Control: "up", Pressed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if machine.lastControl != "up" {
+		t.Fatalf("up mapped to %q", machine.lastControl)
+	}
+	if err := backend.QueueInput(frontend.InputEvent{Control: "back", Pressed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if machine.lastControl != "back" {
+		t.Fatalf("back mapped to %q", machine.lastControl)
+	}
+	if err := backend.QueueInput(frontend.InputEvent{Control: "menu", Pressed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if machine.lastControl != "soft-left" {
+		t.Fatalf("menu fallback mapped to %q", machine.lastControl)
+	}
+	if err := backend.QueueInput(frontend.InputEvent{Control: "end", Pressed: true}); err == nil {
 		t.Fatal("unsupported board control was accepted")
 	}
 }

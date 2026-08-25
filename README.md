@@ -98,9 +98,11 @@ configuration directory when the input or application is closed. Pass
 `-NoMediaPersistence` for a disposable run.
 
 Current exact profiles are SCH-W830 DL21/DA18 and SCH-W860 DA06. W830 exposes
-the evidenced soft keys, OK, and numeric keypad; directional/back/menu wiring
-and W860 keypad input remain board-profile work. Unknown builds fail explicitly
-instead of borrowing another handset's hardware profile.
+the evidenced left/menu and right/memo soft keys, four-way ring, NATE/OK,
+C/back, send, side volume, and numeric keypad controls. The frontend's generic
+MENU input uses the handset's documented left soft-menu button when a board has
+no separate menu key. W860 keypad input remains board-profile work. Unknown
+builds fail explicitly instead of borrowing another handset's hardware profile.
 
 To build an icon-bearing Windows executable locally, prepare its resource
 object before the ordinary build:
