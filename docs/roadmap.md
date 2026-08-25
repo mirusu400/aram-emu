@@ -85,6 +85,13 @@ document flow, survives pause/resume, and produces no desktop-only dependency.
 
 This work runs beside application mode; it does not block early WIPI releases.
 
+Current research milestone: the build-tagged `aram-system` product path opens
+user-supplied SCH-W830 DL21/DA18 and SCH-W860 DA06 firmware directories through
+the ordinary shared frontend, publishes the native 240x320 panel, preserves
+writable NAND across power cycles and closes, and maps the evidenced W830
+keypad controls. This remains an exact-profile milestone, not a compatibility
+claim for arbitrary Samsung firmware.
+
 1. Catalog Magic Hole firmware partitions, boot stages, SoC, memory map, and
    peripherals from reproducible evidence.
 2. Start from controlled memory snapshots to validate CPU, memory, interrupts,
