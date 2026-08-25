@@ -97,6 +97,12 @@ to start the cold boot. The writable NAND is saved below the user's ARAM
 configuration directory when the input or application is closed. Pass
 `-NoMediaPersistence` for a disposable run.
 
+System mode uses the portable translated-block JIT by default. Pass
+`-CPUBackend precise` to the launcher when debugging a CPU mismatch or comparing
+against the instruction-precise fallback. The native-code JIT remains disabled
+for whole-phone machines until its blocks can observe MMIO-raised interrupts and
+execution traps at exact instruction boundaries.
+
 Current exact profiles are SCH-W830 DL21/DA18 and SCH-W860 DA06. W830 exposes
 the evidenced left/menu and right/memo soft keys, four-way ring, NATE/OK,
 C/back, send, side volume, and numeric keypad controls. The frontend's generic
