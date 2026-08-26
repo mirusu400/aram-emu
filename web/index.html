@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ARAM - Archived Runtime for ARM Mobiles</title>
+<style>
+  /* Loading page inherits the browser's light/dark preference; ARAM itself then
+     starts in the same theme via prefers-color-scheme (see systemThemeMode). */
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f4f6;
+    --fg: #1a1a1f;
+    --muted: #6a6a75;
+    --ring: #d8d8de;
+    --accent: #4c5bd4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101014;
+      --fg: #e6e6ea;
+      --muted: #9a9aa6;
+      --ring: #2a2a33;
+      --accent: #6c7cff;
+    }
+  }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
+    overflow: hidden;
+  }
+  body { display: flex; align-items: center; justify-content: center; }
+  /* Ebitengine creates and appends its own <canvas>; center and letterbox it. */
+  canvas { image-rendering: pixelated; max-width: 100vw; max-height: 100vh; outline: none; }
+  #boot {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: var(--bg);
+    transition: opacity .4s ease;
+  }
+  #boot.hidden { opacity: 0; pointer-events: none; }
+  #boot h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: .5px; }
+  #boot p { margin: 0; color: var(--muted); }
+  .spinner {
+    width: 34px; height: 34px;
+    border: 3px solid var(--ring);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #boot .err { color: #d64545; max-width: 42ch; text-align: center; }
+</style>
+</head>
+<body>
+<div id="boot">
+  <div class="spinner" id="spinner"></div>
+  <h1>ARAM</h1>
+  <p id="status">Loading runtime…</p>
+</div>
+
+<script src="wasm_exec.js"></script>
+<script>
+(async function () {
+  const boot = document.getElementById("boot");
+  const status = document.getElementById("status");
+  const spinner = document.getElementById("spinner");
+
+  function fail(message) {
+    spinner.style.display = "none";
+    status.className = "err";
+    status.textContent = message;
+  }
+
+  if (!("instantiateStreaming" in WebAssembly)) {
+    // Safari/older browsers: fall back to arrayBuffer instantiation.
+    WebAssembly.instantiateStreaming = async (resp, importObject) => {
+      const source = await (await resp).arrayBuffer();
+      return await WebAssembly.instantiate(source, importObject);
+    };
+  }
+
+  if (typeof Go !== "function") {
+    fail("wasm_exec.js failed to load. Serve it next to index.html.");
+    return;
+  }
+
+  const go = new Go();
+  try {
+    status.textContent = "Downloading aram.wasm…";
+    const result = await WebAssembly.instantiateStreaming(
+      fetch("aram.wasm"),
+      go.importObject
+    );
+    // Reveal the Ebitengine canvas once the game loop takes over the frame.
+    requestAnimationFrame(() => requestAnimationFrame(() => boot.classList.add("hidden")));
+    await go.run(result.instance);
+  } catch (e) {
+    fail("Failed to start: " + (e && e.message ? e.message : e));
+    console.error(e);
+  }
+})();
+</script>
+</body>
+</html>

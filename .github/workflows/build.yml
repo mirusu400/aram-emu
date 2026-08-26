@@ -440,6 +440,111 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  web:
+    name: Web (WebAssembly)
+    needs:
+      - resolve-components
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out product
+        uses: actions/checkout@v6
+        with:
+          path: aram-emu
+          persist-credentials: false
+
+      - name: Check out core
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-core
+          ref: ${{ needs.resolve-components.outputs.core_sha }}
+          path: aram-core
+          persist-credentials: false
+
+      - name: Check out frontend
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-frontend
+          ref: ${{ needs.resolve-components.outputs.frontend_sha }}
+          path: aram-frontend
+          persist-credentials: false
+
+      - name: Check out authd
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-authd
+          ref: ${{ needs.resolve-components.outputs.authd_sha }}
+          path: aram-authd
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: aram-emu/go.mod
+          cache-dependency-path: |
+            aram-emu/go.sum
+            aram-emu/go.work.sum
+            aram-core/go.sum
+            aram-frontend/go.sum
+            aram-authd/go.sum
+
+      - name: Vet WebAssembly command
+        working-directory: aram-emu
+        env:
+          GOOS: js
+          GOARCH: wasm
+        run: go vet ./cmd/aram-web
+
+      - name: Build WebAssembly bundle
+        working-directory: aram-emu
+        shell: bash
+        env:
+          CORE_SHA: ${{ needs.resolve-components.outputs.core_sha }}
+          FRONTEND_SHA: ${{ needs.resolve-components.outputs.frontend_sha }}
+        run: |
+          mkdir -p web dist
+          emu_short="${GITHUB_SHA::7}"
+          core_short="${CORE_SHA::7}"
+          frontend_short="${FRONTEND_SHA::7}"
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            build_version="${GITHUB_REF_NAME}"
+          elif [[ ("${GITHUB_EVENT_NAME}" == "push" ||
+                   "${GITHUB_EVENT_NAME}" == "workflow_dispatch") &&
+                  "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            build_version="Nightly-${emu_short}-c${core_short}-f${frontend_short}"
+          else
+            build_version="Development-${emu_short}-c${core_short}-f${frontend_short}"
+          fi
+          GOOS=js GOARCH=wasm go build -trimpath \
+            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${build_version}" \
+            -o web/aram.wasm ./cmd/aram-web
+          test -s web/aram.wasm
+          # wasm_exec.js ships with the Go toolchain: lib/wasm on Go >= 1.24,
+          # misc/wasm on older toolchains.
+          wasm_exec="$(go env GOROOT)/lib/wasm/wasm_exec.js"
+          if [[ ! -f "${wasm_exec}" ]]; then
+            wasm_exec="$(go env GOROOT)/misc/wasm/wasm_exec.js"
+          fi
+          test -f "${wasm_exec}"
+          cp "${wasm_exec}" web/wasm_exec.js
+          test -f web/index.html
+          {
+            echo "aram-emu=${GITHUB_SHA}"
+            echo "aram-core=${{ needs.resolve-components.outputs.core_sha }}"
+            echo "aram-frontend=${{ needs.resolve-components.outputs.frontend_sha }}"
+            echo "aram-authd=${{ needs.resolve-components.outputs.authd_sha }}"
+          } > web/BUILD-INFO.txt
+          (cd web && zip -X "../dist/aram-web.zip" \
+            aram.wasm wasm_exec.js index.html BUILD-INFO.txt)
+          test -s dist/aram-web.zip
+
+      - name: Upload web build
+        uses: actions/upload-artifact@v7
+        with:
+          name: aram-web
+          path: aram-emu/dist/aram-web.zip
+          if-no-files-found: error
+          retention-days: 14
+
   publish-nightly:
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -448,6 +553,7 @@ jobs:
       - resolve-components
       - desktop
       - android
+      - web
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -467,11 +573,13 @@ jobs:
           test -f aram-linux-amd64.tar.gz
           test -f aram-macos-arm64.tar.gz
           test -f aram-android-universal.apk
+          test -f aram-web.zip
           sha256sum \
             aram-windows-amd64.zip \
             aram-linux-amd64.tar.gz \
             aram-macos-arm64.tar.gz \
             aram-android-universal.apk \
+            aram-web.zip \
             > SHA256SUMS.txt
       - name: Publish rolling Nightly release
         env:
@@ -521,6 +629,7 @@ jobs:
     needs:
       - resolve-components
       - desktop
+      - web
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -537,10 +646,12 @@ jobs:
           test -f aram-windows-amd64.zip
           test -f aram-linux-amd64.tar.gz
           test -f aram-macos-arm64.tar.gz
+          test -f aram-web.zip
           sha256sum \
             aram-windows-amd64.zip \
             aram-linux-amd64.tar.gz \
             aram-macos-arm64.tar.gz \
+            aram-web.zip \
             > SHA256SUMS.txt
       - name: Attach archives to the published release
         env:

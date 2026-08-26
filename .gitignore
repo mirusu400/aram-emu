@@ -2,6 +2,9 @@
 /bin/
 /build/
 /dist/
+# Web bundle: index.html is source; the wasm and JS shim are generated.
+/web/aram.wasm
+/web/wasm_exec.js
 *.exe
 *.dll
 *.so
