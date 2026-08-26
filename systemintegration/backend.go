@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mirusu400/aram-core/application"
 	"github.com/mirusu400/aram-core/cpu"
 	"github.com/mirusu400/aram-core/firmwareset"
 	"github.com/mirusu400/aram-core/systemmachine"
@@ -59,9 +60,14 @@ type machineFactory func(firmwareset.Set, systemmachine.Options) (systemMachine,
 type Options struct {
 	InstructionsPerFrame     uint64
 	MinimumInputInstructions uint64
-	CPUBackendMode           systemmachine.CPUBackendMode
-	MediaRoot                string
-	DisableMediaPersistence  bool
+	// CPUBackend names a registered core backend. Empty selects "fastest",
+	// which resolves portably to native, Go-JIT, or precise for this build.
+	CPUBackend string
+	// CPUBackendMode is the legacy portable-tier selector. It remains for
+	// callers compiled against the older API; CPUBackend takes precedence.
+	CPUBackendMode          systemmachine.CPUBackendMode
+	MediaRoot               string
+	DisableMediaPersistence bool
 
 	newMachine machineFactory
 }
@@ -100,8 +106,8 @@ func NewBackend(options Options) *Backend {
 	if options.MinimumInputInstructions == 0 {
 		options.MinimumInputInstructions = DefaultMinimumInputInstructions
 	}
-	if options.CPUBackendMode == "" {
-		options.CPUBackendMode = systemmachine.CPUBackendJIT
+	if options.CPUBackend == "" && options.CPUBackendMode == "" {
+		options.CPUBackend = application.FastestBackend
 	}
 	if options.newMachine == nil {
 		options.newMachine = func(set firmwareset.Set, options systemmachine.Options) (systemMachine, error) {
@@ -148,10 +154,21 @@ func (backend *Backend) OpenWithProgress(
 	if progress != nil {
 		progress(frontend.OpenStageLoading)
 	}
-	machine, err := backend.options.newMachine(set, systemmachine.Options{
-		BackendMode: backend.options.CPUBackendMode,
-	})
+	machineOptions := systemmachine.Options{BackendMode: backend.options.CPUBackendMode}
+	if backend.options.CPUBackend != "" {
+		newCPU, resolveErr := application.ResolveCPUBackend(backend.options.CPUBackend)
+		if resolveErr != nil {
+			closeFiles()
+			return info, systemBackendError(frontend.FailureBackendUnavailable, resolveErr)
+		}
+		machineOptions.BackendMode = ""
+		machineOptions.Backend = newCPU()
+	}
+	machine, err := backend.options.newMachine(set, machineOptions)
 	if err != nil {
+		if machineOptions.Backend != nil {
+			_ = machineOptions.Backend.Close()
+		}
 		closeFiles()
 		kind := frontend.FailureUnsupportedProfile
 		if errors.Is(err, systemmachine.ErrUnsupportedBackend) {
@@ -200,6 +217,32 @@ func (backend *Backend) OpenWithProgress(
 	}
 	return info, nil
 }
+
+// ConfigureCPU stores a registered backend for the next firmware machine.
+// The host router replays this setting when switching from application mode,
+// so one frontend CPU choice now applies to both product modes.
+func (backend *Backend) ConfigureCPU(settings frontend.CPUSettings) error {
+	name := settings.Name
+	if name == "" {
+		name = application.FastestBackend
+	}
+	if _, err := application.ResolveCPUBackend(name); err != nil {
+		return err
+	}
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+	backend.mu.Lock()
+	backend.options.CPUBackend = name
+	backend.options.CPUBackendMode = ""
+	backend.mu.Unlock()
+	return nil
+}
+
+func (backend *Backend) AvailableCPUBackends() []string {
+	return application.CPUBackendNames()
+}
+
+var _ frontend.CPUBackendSelector = (*Backend)(nil)
 
 func inspectFirmwareDirectory(
 	request frontend.OpenRequest,

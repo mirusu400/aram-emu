@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/mirusu400/aram-core/systemmachine"
+	"github.com/mirusu400/aram-core/application"
 	"github.com/mirusu400/aram-emu/systemintegration"
 	"github.com/mirusu400/aram-frontend/frontend"
 )
@@ -31,8 +31,8 @@ func main() {
 	)
 	cpuBackend := flag.String(
 		"cpu",
-		string(systemmachine.CPUBackendJIT),
-		"whole-phone CPU backend: jit or precise",
+		application.FastestBackend,
+		"whole-phone CPU backend: fastest, native, jit, or precise",
 	)
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [options] [firmware-directory]\n", os.Args[0])
@@ -50,7 +50,7 @@ func main() {
 	backend := systemintegration.NewBackend(systemintegration.Options{
 		InstructionsPerFrame:    *instructionsPerFrame,
 		DisableMediaPersistence: *noMedia,
-		CPUBackendMode:          systemmachine.CPUBackendMode(*cpuBackend),
+		CPUBackend:              *cpuBackend,
 	})
 	defer backend.Close()
 	if err := frontend.RunWithOptions(backend, initialPath, initialPath == ""); err != nil {

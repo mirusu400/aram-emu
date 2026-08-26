@@ -16,7 +16,6 @@ import (
 	"errors"
 
 	aramcore "github.com/mirusu400/aram-core/core"
-	"github.com/mirusu400/aram-core/systemmachine"
 	"github.com/mirusu400/aram-emu/integration"
 	"github.com/mirusu400/aram-emu/systemintegration"
 	"github.com/mirusu400/aram-frontend/frontend"
@@ -263,12 +262,11 @@ func (b *Backend) BackendName() string {
 	return "aram"
 }
 
-// DefaultSystemOptions is the whole-phone configuration the product ships: the
-// portable translated-block core, and a writable NAND that survives a session.
-// The native core stays out of whole-phone execution until its blocks can stop
-// at an MMIO-raised interrupt.
+// DefaultSystemOptions selects the fastest backend registered by this build.
+// systemintegration resolves that portable name to native, Go-JIT, or precise
+// when the firmware machine is created.
 func DefaultSystemOptions() systemintegration.Options {
-	return systemintegration.Options{CPUBackendMode: systemmachine.CPUBackendJIT}
+	return systemintegration.Options{}
 }
 
 var _ frontend.Backend = (*Backend)(nil)

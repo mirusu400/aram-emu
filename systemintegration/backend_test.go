@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/mirusu400/aram-core/application"
 	"github.com/mirusu400/aram-core/cpu"
 	"github.com/mirusu400/aram-core/firmwareset"
 	"github.com/mirusu400/aram-core/systemmachine"
@@ -102,19 +103,29 @@ func TestBackendOpensFirmwareDirectoryRunsFramesAndMapsControls(t *testing.T) {
 		}
 	}
 	machine := newFakeSystemMachine()
+	var selectedCPU cpu.Backend
 	backend := NewBackend(Options{
 		InstructionsPerFrame:     25,
 		MinimumInputInstructions: 50,
 		MediaRoot:                t.TempDir(),
 		DisableMediaPersistence:  true,
-		newMachine: func(set firmwareset.Set, _ systemmachine.Options) (systemMachine, error) {
+		newMachine: func(set firmwareset.Set, options systemmachine.Options) (systemMachine, error) {
 			if set.Len() != 4 {
 				t.Fatalf("firmware pieces = %d, want 4", set.Len())
 			}
+			if options.Backend == nil || options.BackendMode != "" {
+				t.Fatalf("default machine CPU options = %+v, want explicit fastest backend", options)
+			}
+			selectedCPU = options.Backend
 			return machine, nil
 		},
 	})
-	t.Cleanup(func() { _ = backend.Close() })
+	t.Cleanup(func() {
+		_ = backend.Close()
+		if selectedCPU != nil {
+			_ = selectedCPU.Close()
+		}
+	})
 
 	info, err := backend.Open(context.Background(), frontend.OpenRequest{Path: directory})
 	if err != nil {
@@ -195,14 +206,27 @@ func TestBackendOpensFirmwareDirectoryRunsFramesAndMapsControls(t *testing.T) {
 	}
 }
 
-func TestBackendDefaultsToPortableJIT(t *testing.T) {
+func TestBackendDefaultsToFastestRegisteredCPU(t *testing.T) {
 	backend := NewBackend(Options{})
-	if got := backend.options.CPUBackendMode; got != systemmachine.CPUBackendJIT {
-		t.Fatalf("default CPU backend = %q, want %q", got, systemmachine.CPUBackendJIT)
+	if got := backend.options.CPUBackend; got != application.FastestBackend {
+		t.Fatalf("default CPU backend = %q, want %q", got, application.FastestBackend)
 	}
 	precise := NewBackend(Options{CPUBackendMode: systemmachine.CPUBackendPrecise})
 	if got := precise.options.CPUBackendMode; got != systemmachine.CPUBackendPrecise {
 		t.Fatalf("explicit CPU backend = %q, want %q", got, systemmachine.CPUBackendPrecise)
+	}
+}
+
+func TestBackendCPUSelectionUsesRegisteredFactory(t *testing.T) {
+	backend := NewBackend(Options{})
+	if err := backend.ConfigureCPU(frontend.CPUSettings{Name: "jit"}); err != nil {
+		t.Fatal(err)
+	}
+	if backend.options.CPUBackend != "jit" || backend.options.CPUBackendMode != "" {
+		t.Fatalf("configured CPU options = %+v", backend.options)
+	}
+	if err := backend.ConfigureCPU(frontend.CPUSettings{Name: "missing-system-core"}); err == nil {
+		t.Fatal("unknown system CPU backend was accepted")
 	}
 }
 
