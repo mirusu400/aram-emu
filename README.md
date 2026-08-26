@@ -1,214 +1,128 @@
-# ARAM
+<p align="center">
+  <img src="https://aram.mir.sh/assets/icon.png" width="120" alt="ARAM">
+</p>
 
-**ARAM - Archived Runtime for ARM Mobiles**
+<h1 align="center">ARAM</h1>
 
-[![build](https://github.com/mirusu400/aram-emu/actions/workflows/build.yml/badge.svg)](https://github.com/mirusu400/aram-emu/actions/workflows/build.yml)
+<p align="center">
+  <b>Archived Runtime for ARM Mobiles</b><br>
+  Bring Korean feature-phone (WIPI) software back to life, on your computer, phone, or straight in the browser.
+</p>
 
-ARAM is a cross-platform emulator project for Korean feature-phone software.
-It targets both fast application-level WIPI emulation and, as a longer-term
-research track, booting user-supplied original device firmware.
+<p align="center">
+  <a href="https://aram.mir.sh"><b>🌐 Website</b></a> ·
+  <a href="https://aram.mir.sh/#play"><b>▶ Play in your browser</b></a> ·
+  <a href="https://github.com/mirusu400/aram-emu/releases"><b>⬇ Download</b></a>
+</p>
 
-This repository is the product integration and release repository.
-The core and frontend are intentionally separate:
+<p align="center">
+  <a href="https://github.com/mirusu400/aram-emu/actions/workflows/build.yml"><img src="https://github.com/mirusu400/aram-emu/actions/workflows/build.yml/badge.svg" alt="build"></a>
+</p>
 
-| Repository | Responsibility | Primary output |
-|---|---|---|
-| [`aram-core`](https://github.com/mirusu400/aram-core) | Headless loaders, profiles, machine contracts, CPU and WIPI runtime | Go library |
-| [`aram-frontend`](https://github.com/mirusu400/aram-frontend) | Shared emulator UI plus desktop/mobile host boundaries | Desktop app and mobile library |
-| [`aram-emu`](https://github.com/mirusu400/aram-emu) | Architecture, roadmap, integration adapter, packaging, releases | ARAM product |
-| `aram-test` | Synthetic and authorized commercial-corpus orchestration, reports, deltas, and triage | Compatibility laboratory |
+---
 
-Product integration imports the two sibling modules instead of copying their
-implementation. A local Go workspace connects sibling checkouts while their
-contracts are still changing.
+## What is ARAM?
 
-## Product modes
+ARAM is an emulator for **Korean feature-phone software** — the small games and
+apps that ran on 2000s WIPI handsets. Point it at a program you're allowed to
+use, and ARAM runs it again, on modern hardware.
 
-- **Application mode:** load a WIPI package, execute its ARM/Thumb guest code,
-  and provide WIPI, carrier, OEM, display, audio, input, storage, and timing
-  services through high-level emulation.
-- **System mode:** load a user-supplied firmware image, instantiate a concrete
-  device/SoC profile, and progressively boot snapshots, AMSS, and eventually
-  the original boot chain as hardware coverage permits.
+> 한국 피처폰(WIPI) 시절의 게임과 앱을 지금의 PC·폰·브라우저에서 다시 실행하는 에뮬레이터입니다.
 
-The modes share the frontend, input mapping, audio, profiles, save-state,
-debugger, patch, and compatibility infrastructure. They do not pretend to be
-the same backend.
+It runs on **Windows, Linux, macOS, and Android**, and there's a full
+**in-browser version** — no install required.
 
-## Platform target
+## Try it now
 
-Windows, Linux, and macOS are first-class desktop targets. Android is a
-first-class mobile target through an Ebitengine AAR and native Android host.
-iOS is designed into the boundary and follows after Android. The core keeps a
-portable interpreter path so that an optional native/JIT backend does not
-decide which hosts ARAM can support.
+- **▶ Play in your browser:** open **[aram.mir.sh](https://aram.mir.sh/#play)**,
+  press *Launch ARAM*, then `File ▸ Open` a file you own. Everything runs locally
+  in your browser; nothing is uploaded.
+- **⬇ Download the app:** grab the latest build for your system.
 
-Current foundation status:
+| | Download (latest stable) |
+|---|---|
+| **Windows** | [aram-windows-amd64.zip](https://github.com/mirusu400/aram-emu/releases/latest/download/aram-windows-amd64.zip) |
+| **macOS** (Apple silicon) | [aram-macos-arm64.tar.gz](https://github.com/mirusu400/aram-emu/releases/latest/download/aram-macos-arm64.tar.gz) |
+| **Linux** | [aram-linux-amd64.tar.gz](https://github.com/mirusu400/aram-emu/releases/latest/download/aram-linux-amd64.tar.gz) |
+| **Android** | [aram-android-universal.apk](https://github.com/mirusu400/aram-emu/releases/latest/download/aram-android-universal.apk) |
 
-- `aram-core` tests natively and cross-compiles for Android/arm64;
-- `aram-frontend` tests on desktop and supplies the shared mobile UI binding;
-- `aram-emu` now owns the adapter and desktop product entry point that connect
-  the frontend's ordinary open request to the core application factory;
-- `aram-emu` also owns an installable Android arm64/x86_64 Nightly host with SAF
-  document import, lifecycle, audio-focus, touch, and gamepad integration;
-- synthetic EADS and the authorized Magic Hole reference both reach and
-  execute their mapped native entry points; the profiled reference completes
-  bootstrap, setup, start, preload, and its first visible frame deterministically;
-- the independent `aram-test` repository consumes the headless product probe
-  for synthetic gates and authorized commercial-corpus loop engineering;
-- conventional File, Emulation, View, Tools, and Help commands remain in the
-  frontend even when the backend does not implement them yet;
-- users can export one checksummed debug ZIP with redacted frontend logs and
-  bounded core CPU/runtime diagnostics for issue triage;
-- broad native instruction and WIPI/OEM service coverage, multi-title
-  first-frame compatibility, production-grade state workflows, cheats, and
-  firmware boot remain roadmap work, not completed compatibility claims.
+Prefer the bleeding edge? Every change to the project is also published as a
+[**Nightly**](https://github.com/mirusu400/aram-emu/releases/tag/nightly) build.
+You can pick **Stable** or **Nightly** right on the [download page](https://aram.mir.sh/#download).
 
-Run the integrated desktop product from this checkout:
+## What can it run?
+
+ARAM has two ways to bring old software back:
+
+### 📱 Run apps and games
+Load a WIPI app or game and ARAM runs it directly, providing the phone services
+it expects — display, sound, input, storage, and timing. **This works today.**
+
+### 🔌 Boot a whole phone *(experimental)*
+Point ARAM at a real phone's firmware and it boots the entire device, one
+supported model at a time (currently the Samsung SCH-W830 and SCH-W860). This is
+an ongoing research track.
+
+## Features
+
+- **Runs everywhere** — Windows, Linux, macOS, Android, and the browser.
+- **No installer needed to try it** — the web version runs the real emulator in a tab.
+- **Save states & rewind** — snapshot a game and jump back anytime.
+- **Cheats, debugger, and patching** — the full toolbox for tinkering.
+- **Custom controls** — remap your keyboard or gamepad, or use the on-screen keypad.
+- **One-click bug reports** — export a redacted debug bundle and file an issue from inside the app.
+
+## How honest is it?
+
+Very. ARAM is under active development, and it tracks its progress in clear
+steps: *recognized → loads → executes → first frame → playable → complete*. A few
+reference titles already reach their first frame; broad game support and full
+phone boot are still on the way. We won't pretend a game runs when it doesn't.
+
+## Bring your own files
+
+**ARAM never distributes firmware, commercial games, keys, memory dumps, or
+device fonts.** You provide only material you are authorized to use. ARAM is not
+affiliated with any handset maker or carrier.
+
+---
+
+## For developers
+
+ARAM is split into focused, independent repositories that this one integrates
+into the shipping product:
+
+| Repository | Responsibility |
+|---|---|
+| [`aram-emu`](https://github.com/mirusu400/aram-emu) | Product integration, packaging, releases, roadmap *(this repo)* |
+| [`aram-core`](https://github.com/mirusu400/aram-core) | Headless Go core — loaders, ARM/Thumb CPU, profiles, WIPI runtime, save states |
+| [`aram-frontend`](https://github.com/mirusu400/aram-frontend) | Shared UI — desktop & mobile hosts, menus, input, overlays |
+| [`aram-cheat`](https://github.com/mirusu400/aram-cheat) | Cheat database, keyed by the loaded-image hash |
+
+Run the integrated desktop app from a checkout:
 
 ```powershell
 go run ./cmd/aram
-go run ./cmd/aram path\to\authorized-input.dat
+go run ./cmd/aram path\to\your-input.dat
 ```
 
-### Experimental whole-phone firmware
-
-`cmd/aram` runs whole-phone firmware through the same shell as an application
-title: **File -> Open Firmware Directory...**, or pass the directory on the
-command line. It accepts an extracted directory of Samsung download pieces
-(`.wbt`, `.wbin`, `.dat`, and `.fnt`), verifies every piece, selects an exact
-firmware and board profile in `aram-core`, and sends the phone's native
-framebuffer and keypad events through the shared frontend. No firmware bytes are
-copied into an ARAM repository.
+Build the browser version:
 
 ```powershell
-go run ./cmd/aram 'C:\path\to\extracted\SCH-W830_DL21'
+$env:GOOS = "js"; $env:GOARCH = "wasm"
+go build -o web/aram.wasm ./cmd/aram-web
+# then serve web/ (index.html + wasm_exec.js + aram.wasm)
 ```
 
-A build whose backend cannot run firmware disables that menu entry and says so,
-rather than offering a command whose only outcome is an error.
+Every push builds and tests ARAM on Windows, Linux, and macOS, binds the Android
+product, and refreshes the rolling `nightly` release. Deeper documentation lives
+in [`docs/`](docs/):
 
-`cmd/aram-system` is the development entry point for the same machine. It exists
-for the flags that only matter while working on it, and is not what a person
-running the product uses:
-
-```powershell
-go run ./cmd/aram-system -cpu precise 'C:\path\to\extracted\SCH-W830_DL21'
-```
-
-The phone starts automatically after loading. On a new writable NAND, let the
-factory setup finish, use `Ctrl+R` to power-cycle while preserving that NAND, and
-press `F5` to start the cold boot. The writable NAND is saved below the user's
-ARAM configuration directory when the input or application is closed. Pass
-`-no-media-persistence` to `cmd/aram-system` for a disposable run.
-
-System mode uses the portable translated-block JIT by default. Pass
-`-cpu precise` to `cmd/aram-system` when debugging a CPU mismatch or comparing
-against the instruction-precise fallback. The native-code JIT remains disabled
-for whole-phone machines until its blocks can observe MMIO-raised interrupts and
-execution traps at exact instruction boundaries.
-
-Current exact profiles are SCH-W830 DL21/DA18 and SCH-W860 DA06. W830 exposes
-the evidenced left/menu and right/memo soft keys, four-way ring, NATE/OK,
-C/back, send, side volume, and numeric keypad controls. The frontend's generic
-MENU input uses the handset's documented left soft-menu button when a board has
-no separate menu key. W860 keypad input remains board-profile work. Unknown
-builds fail explicitly instead of borrowing another handset's hardware profile.
-
-To build an icon-bearing Windows executable locally, prepare its resource
-object before the ordinary build:
-
-```powershell
-go generate ./cmd/aram
-go build -trimpath -o ./build/aram.exe ./cmd/aram
-```
-
-Packaged desktop builds act as their own bootstrap. On the first launch,
-choosing Nightly downloads the rolling integrated `aram-emu` Release, verifies
-its GitHub digest, installs it below the platform ARAM configuration directory,
-and restarts into that runtime. The installed archive contains the compatible
-core and frontend revisions recorded in `BUILD-INFO.txt`; they are not dynamic
-plugins. Choosing Stable installs the latest non-prerelease when one exists and
-otherwise continues with the bundled build. After an update-driven restart,
-ARAM opens the game picker automatically.
-
-The Updates page uses the same installation path: downloading the ARAM product
-immediately installs and restarts it, reopening the currently loaded input.
-Standalone core-tool and frontend archives are not installed into the product.
-The product build embeds its Stable tag or combined Nightly product/core/frontend
-revision so the running version is visible in Updates and About ARAM.
-
-The bootstrap never overwrites its running executable. It keeps versioned,
-content-addressed runtimes under `ARAM/runtime/versions` and records the active
-one in `ARAM/runtime/current.json`; launching the downloaded copy delegates to
-that active runtime. That copy is recognized by its contents rather than its
-location, so moving the app, or the randomized path macOS gives a quarantined
-bundle, does not strand it on the build it shipped with. A newer download hashes
-differently and runs itself instead of deferring to the runtime it replaces, and
-a runtime is identified by its own directory so it never delegates to itself.
-Every launch clears superseded runtimes,
-keeping the active one and the runtime it replaced so the process that installed
-an update can finish exiting; a runtime still running is renamed aside rather
-than emptied, so it is skipped intact. Installing a product archive also deletes
-the download it came from, while an archive left by a failed install stays for a
-manual install.
-
-Build or invoke the black-box compatibility probe:
-
-```powershell
-go run ./cmd/aram-probe -input path\to\authorized-input.dat
-```
-
-Corpus discovery, caching, comparison, and reports belong to the sibling
-`aram-test` repository rather than the product tree.
-
-## Continuous builds
-
-Every push and pull request runs the desktop tests and builds ARAM on Windows
-x64, Linux x64, and macOS arm64. It also binds the integrated mobile product,
-lints the native Android host, and builds a debug-signed universal APK for
-arm64 devices and x86_64 Android Virtual Devices. Download the compressed
-`aram-*` desktop build or `aram-android-universal.apk` from the workflow run's
-**Artifacts** section. CI artifacts are retained for 14 days. The Windows
-build embeds the product icon in `aram.exe`, while the macOS archive contains
-an icon-bearing `ARAM.app` plus its update-compatible command-line launcher.
-Android packages density-specific legacy and adaptive launcher icons from the
-same pinned frontend artwork.
-
-A successful push to `main` also updates the rolling `nightly` prerelease with
-the desktop archives, Android APK, and `SHA256SUMS.txt`. The Nightly name and
-release notes identify the exact product, core, and frontend revisions.
-Publishing a non-nightly GitHub release builds the tagged desktop product and
-attaches its archives and checksums to that release; production Android
-signing remains a separate Stable-release gate.
-
-The product workflow checks out the exact `aram-core`, `aram-frontend`, and
-`aram-authd` revisions recorded in `product-components.json`, so the local
-`go.work` and `replace` directives resolve reproducibly. A lightweight hourly
-workflow watches the successfully published `nightly` revisions from the
-public `aram-core` and `aram-frontend` repositories. When either revision
-changes, it commits the updated component lock and dispatches a fresh
-integrated ARAM Nightly. This means component Nightlies gate the product
-build; their standalone archives remain developer downloads and are not
-dynamically loaded into an installed ARAM process. `aram-authd` publishes no
-Nightly yet, so its `authd` pin is bumped by hand when the integration adapter
-needs a newer revision.
-
-A manual workflow run may override any dependency ref for integration
-testing. Each archive contains `BUILD-INFO.txt` with the exact revisions used.
-
-## Project documents
-
-- [Repository ownership](docs/repositories.md)
-- [Architecture and dependency direction](docs/architecture.md)
-- [Core/frontend integration contract](docs/integration.md)
+- [Architecture & dependency direction](docs/architecture.md)
+- [Core / frontend integration contract](docs/integration.md)
 - [Cross-platform strategy](docs/platforms.md)
-- [Android host and local APK build](android/README.md)
-- [Implementation roadmap and release gates](docs/roadmap.md)
-- [Frontend product requirements](docs/frontend.md)
+- [Implementation roadmap & release gates](docs/roadmap.md)
+- [Frontend requirements](docs/frontend.md)
 - [Compatibility evidence policy](docs/compatibility.md)
-- [Codex project guide](CODEX.md)
-
-ARAM never distributes firmware, commercial games, keys, memory dumps, device
-fonts, or extracted proprietary assets. Users provide material they are
-authorized to use.
+- [Repository ownership](docs/repositories.md)
+- [Android host & local APK build](android/README.md)
