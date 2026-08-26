@@ -196,6 +196,11 @@ func (backend *Backend) OpenWithProgress(
 func inspectSource(
 	request frontend.OpenRequest,
 ) (aramcore.Source, frontend.InputInfo, *os.File, error) {
+	// A host without a readable filesystem path (the web/wasm build) hands the
+	// input in-band as bytes. Inspect and load from memory, with no os access.
+	if len(request.Data) > 0 {
+		return inspectSourceBytes(request)
+	}
 	if request.Path == "" {
 		return aramcore.Source{}, frontend.InputInfo{
 			DisplayName: request.DisplayName,
@@ -249,6 +254,41 @@ func inspectSource(
 		SHA256:      report.SHA256,
 	}
 	return source, info, sourceFile, nil
+}
+
+// inspectSourceBytes is the in-memory counterpart of inspectSource for hosts
+// that deliver the input as bytes rather than a filesystem path (web/wasm). It
+// inspects and hashes the bytes through the same loader used for files, then
+// backs the aramcore.Source with a bytes.Reader. It returns a nil *os.File
+// because there is no descriptor to own; callers guard the returned file before
+// closing it.
+func inspectSourceBytes(
+	request frontend.OpenRequest,
+) (aramcore.Source, frontend.InputInfo, *os.File, error) {
+	name := request.DisplayName
+	if name == "" {
+		name = "input"
+	}
+	report, err := loader.InspectBytes(name, request.Data)
+	if err != nil {
+		return aramcore.Source{}, frontend.InputInfo{
+			DisplayName: name,
+		}, nil, err
+	}
+	source := aramcore.Source{
+		Name:     name,
+		Format:   string(report.Kind),
+		SHA256:   report.SHA256,
+		ReaderAt: bytes.NewReader(request.Data),
+		Size:     report.Size,
+	}
+	info := frontend.InputInfo{
+		DisplayName: name,
+		Format:      string(report.Kind),
+		Size:        report.Size,
+		SHA256:      report.SHA256,
+	}
+	return source, info, nil, nil
 }
 
 func (backend *Backend) State() frontend.BackendState {
