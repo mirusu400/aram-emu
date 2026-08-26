@@ -623,6 +623,19 @@ jobs:
               grep -Fxq aram-android-arm64.apk; then
             gh release delete-asset nightly aram-android-arm64.apk --yes
           fi
+      - name: Trigger aram-website redeploy
+        env:
+          DISPATCH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "${DISPATCH_TOKEN}" ]; then
+            echo "WEBSITE_DISPATCH_TOKEN not set; skipping website redeploy."
+            exit 0
+          fi
+          GH_TOKEN="${DISPATCH_TOKEN}" gh api \
+            repos/mirusu400/aram-website/dispatches \
+            -f event_type=nightly-updated
+          echo "Signaled aram-website to redeploy with the latest nightly runtime."
 
   publish-stable:
     if: github.event_name == 'release' && github.event.release.tag_name != 'nightly'
