@@ -23,14 +23,14 @@
 
 ## What is ARAM?
 
-ARAM is an emulator for **Korean feature-phone software** — the small games and
+ARAM is an emulator for **Korean feature-phone software**, the small games and
 apps that ran on 2000s WIPI handsets. Point it at a program you're allowed to
 use, and ARAM runs it again, on modern hardware.
 
 > 한국 피처폰(WIPI) 시절의 게임과 앱을 지금의 PC·폰·브라우저에서 다시 실행하는 에뮬레이터입니다.
 
 It runs on **Windows, Linux, macOS, and Android**, and there's a full
-**in-browser version** — no install required.
+**in-browser version**, no install required.
 
 ## Try it now
 
@@ -56,7 +56,7 @@ ARAM has two ways to bring old software back:
 
 ### 📱 Run apps and games
 Load a WIPI app or game and ARAM runs it directly, providing the phone services
-it expects — display, sound, input, storage, and timing. **This works today.**
+it expects, display, sound, input, storage, and timing. **This works today.**
 
 ### 🔌 Boot a whole phone *(experimental)*
 Point ARAM at a real phone's firmware and it boots the entire device, one
@@ -65,25 +65,26 @@ an ongoing research track.
 
 ## Features
 
-- **Runs everywhere** — Windows, Linux, macOS, Android, and the browser.
-- **No installer needed to try it** — the web version runs the real emulator in a tab.
-- **Save states & rewind** — snapshot a game and jump back anytime.
-- **Cheats, debugger, and patching** — the full toolbox for tinkering.
-- **Custom controls** — remap your keyboard or gamepad, or use the on-screen keypad.
-- **One-click bug reports** — export a redacted debug bundle and file an issue from inside the app.
+- **Runs everywhere**, Windows, Linux, macOS, Android, and the browser.
+- **No installer needed to try it**, the web version runs the real emulator in a tab.
+- **Save states & rewind**, snapshot a game and jump back anytime.
+- **Cheats, debugger, and patching**, the full toolbox for tinkering.
+- **Custom controls**, remap your keyboard or gamepad, or use the on-screen keypad.
+- **One-click bug reports**, export a redacted debug bundle and file an issue from inside the app.
 
 ## How honest is it?
 
 Very. ARAM is under active development, and it tracks its progress in clear
 steps: *recognized → loads → executes → first frame → playable → complete*. A few
 reference titles already reach their first frame; broad game support and full
-phone boot are still on the way. We won't pretend a game runs when it doesn't.
+phone boot are still on the way. Every result is reported honestly, so you
+always know exactly how far a title gets.
 
 ## Bring your own files
 
-**ARAM never distributes firmware, commercial games, keys, memory dumps, or
-device fonts.** You provide only material you are authorized to use. ARAM is not
-affiliated with any handset maker or carrier.
+**You supply the software you want to run.** ARAM works with firmware, games,
+and other material that you already own or are authorized to use, and it stays
+an independent, community project.
 
 ---
 
@@ -95,8 +96,8 @@ into the shipping product:
 | Repository | Responsibility |
 |---|---|
 | [`aram-emu`](https://github.com/mirusu400/aram-emu) | Product integration, packaging, releases, roadmap *(this repo)* |
-| [`aram-core`](https://github.com/mirusu400/aram-core) | Headless Go core — loaders, ARM/Thumb CPU, profiles, WIPI runtime, save states |
-| [`aram-frontend`](https://github.com/mirusu400/aram-frontend) | Shared UI — desktop & mobile hosts, menus, input, overlays |
+| [`aram-core`](https://github.com/mirusu400/aram-core) | Headless Go core, loaders, ARM/Thumb CPU, profiles, WIPI runtime, save states |
+| [`aram-frontend`](https://github.com/mirusu400/aram-frontend) | Shared UI, desktop & mobile hosts, menus, input, overlays |
 | [`aram-cheat`](https://github.com/mirusu400/aram-cheat) | Cheat database, keyed by the loaded-image hash |
 
 Run the integrated desktop app from a checkout:
