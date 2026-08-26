@@ -71,34 +71,39 @@ go run ./cmd/aram
 go run ./cmd/aram path\to\authorized-input.dat
 ```
 
-### Experimental whole-phone firmware runner
+### Experimental whole-phone firmware
 
-The `system_firmware` build exposes the whole-phone backend without changing
-the default application-mode product. It accepts an extracted directory of
-Samsung download pieces (`.wbt`, `.wbin`, `.dat`, and `.fnt`), verifies every
-piece, selects an exact firmware and board profile in `aram-core`, and sends
-the phone's native framebuffer and keypad events through the shared frontend.
-No firmware bytes are copied into an ARAM repository.
-
-While the system-machine API is developed in a sibling core checkout, the
-PowerShell launcher creates a temporary Go workspace overlay for it:
+`cmd/aram` runs whole-phone firmware through the same shell as an application
+title: **File -> Open Firmware Directory...**, or pass the directory on the
+command line. It accepts an extracted directory of Samsung download pieces
+(`.wbt`, `.wbin`, `.dat`, and `.fnt`), verifies every piece, selects an exact
+firmware and board profile in `aram-core`, and sends the phone's native
+framebuffer and keypad events through the shared frontend. No firmware bytes are
+copied into an ARAM repository.
 
 ```powershell
-.\scripts\run-system-firmware.ps1 `
-  -FirmwarePath 'C:\path\to\extracted\SCH-W830_DL21' `
-  -CorePath '..\aram-core-magichole-system'
+go run ./cmd/aram 'C:\path\to\extracted\SCH-W830_DL21'
 ```
 
-The default core path is already `..\aram-core-magichole-system`, so `-CorePath`
-may be omitted when the sibling checkout uses that name. The phone starts
-automatically after loading. On a new writable NAND, let the factory setup
-finish, use `Ctrl+R` to power-cycle while preserving that NAND, and press `F5`
-to start the cold boot. The writable NAND is saved below the user's ARAM
-configuration directory when the input or application is closed. Pass
-`-NoMediaPersistence` for a disposable run.
+A build whose backend cannot run firmware disables that menu entry and says so,
+rather than offering a command whose only outcome is an error.
+
+`cmd/aram-system` is the development entry point for the same machine. It exists
+for the flags that only matter while working on it, and is not what a person
+running the product uses:
+
+```powershell
+go run ./cmd/aram-system -cpu precise 'C:\path\to\extracted\SCH-W830_DL21'
+```
+
+The phone starts automatically after loading. On a new writable NAND, let the
+factory setup finish, use `Ctrl+R` to power-cycle while preserving that NAND, and
+press `F5` to start the cold boot. The writable NAND is saved below the user's
+ARAM configuration directory when the input or application is closed. Pass
+`-no-media-persistence` to `cmd/aram-system` for a disposable run.
 
 System mode uses the portable translated-block JIT by default. Pass
-`-CPUBackend precise` to the launcher when debugging a CPU mismatch or comparing
+`-cpu precise` to `cmd/aram-system` when debugging a CPU mismatch or comparing
 against the instruction-precise fallback. The native-code JIT remains disabled
 for whole-phone machines until its blocks can observe MMIO-raised interrupts and
 execution traps at exact instruction boundaries.

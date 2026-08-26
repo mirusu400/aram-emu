@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/mirusu400/aram-emu/integration"
+	"github.com/mirusu400/aram-emu/hostbackend"
 	"github.com/mirusu400/aram-emu/internal/bootstrap"
 	"github.com/mirusu400/aram-frontend/frontend"
 )
@@ -18,7 +18,7 @@ const openAfterInstallArgument = "--aram-open-after-install"
 const keptPreviousRuntimes = 1
 
 type productBackend struct {
-	*integration.Backend
+	*hostbackend.Backend
 	relaunchArgs []string
 }
 
@@ -59,7 +59,9 @@ func main() {
 		relaunchArgs = []string{initialPath}
 	}
 	backend := &productBackend{
-		Backend:      integration.NewBackend(nil),
+		Backend: hostbackend.NewBackend(hostbackend.Options{
+			System: hostbackend.DefaultSystemOptions(),
+		}),
 		relaunchArgs: relaunchArgs,
 	}
 	defer backend.Close()

@@ -1,5 +1,3 @@
-//go:build system_firmware
-
 // Package systemintegration adapts aram-core whole-phone machines to the
 // shared aram-frontend backend contract. It lives in aram-emu so neither the
 // headless core nor the reusable frontend needs to know about the other.
