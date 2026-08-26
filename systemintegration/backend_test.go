@@ -1,5 +1,3 @@
-//go:build system_firmware
-
 package systemintegration
 
 import (

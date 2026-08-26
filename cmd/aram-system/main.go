@@ -1,4 +1,10 @@
-//go:build system_firmware && (windows || linux || darwin) && !android && !ios
+//go:build (windows || linux || darwin) && !android && !ios
+
+// Command aram-system is the whole-phone development entry point. The
+// shipping product (cmd/aram) runs firmware through the same shell; this
+// exists for the flags that only matter while working on the system
+// machine -- picking the instruction-precise core, choosing the frame
+// quantum, and running without touching the writable NAND.
 
 package main
 
