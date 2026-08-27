@@ -49,6 +49,7 @@ type WIPIDiagnostics struct {
 	DispatchWiredAPIs   int
 	SemanticallyModeled int
 	ObservedAPIs        int
+	ObservedAPINames    []string
 	UnimplementedAPIs   []string
 }
 
@@ -120,6 +121,7 @@ func (backend *Backend) Diagnostics() Diagnostics {
 	if provider, ok := machine.(interface {
 		WIPIFrameStats() (application.WIPIFrameStats, bool)
 		WIPIAPICoverage() (application.WIPIAPICoverage, bool)
+		WIPIObservedAPIs() []string
 		WIPIUnimplementedAPIs() []string
 	}); ok {
 		stats, present := provider.WIPIFrameStats()
@@ -136,6 +138,7 @@ func (backend *Backend) Diagnostics() Diagnostics {
 				DispatchWiredAPIs:   coverage.DispatchWired,
 				SemanticallyModeled: coverage.SemanticallyModeled,
 				ObservedAPIs:        coverage.Observed,
+				ObservedAPINames:    provider.WIPIObservedAPIs(),
 				UnimplementedAPIs:   provider.WIPIUnimplementedAPIs(),
 			}
 		}

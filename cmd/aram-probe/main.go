@@ -35,6 +35,7 @@ type probeResult struct {
 	LastExecution     *executionResult      `json:"last_execution,omitempty"`
 	WIPI              *wipiResult           `json:"wipi,omitempty"`
 	EADS              *eadsResult           `json:"eads,omitempty"`
+	Haptics           *hapticsResult        `json:"haptics,omitempty"`
 	TotalInstructions uint64                `json:"total_instructions,omitempty"`
 	FirstFrameSlice   uint64                `json:"first_frame_slice,omitempty"`
 	PreInputSlices    uint64                `json:"pre_input_slices,omitempty"`
@@ -45,6 +46,7 @@ type probeResult struct {
 	ErrorKind         frontend.FailureKind  `json:"error_kind,omitempty"`
 	Detail            string                `json:"detail,omitempty"`
 	ElapsedMS         int64                 `json:"elapsed_ms"`
+	hapticsActive     bool
 }
 
 type imageResult struct {
@@ -80,7 +82,15 @@ type wipiResult struct {
 	DispatchWiredAPIs   int      `json:"dispatch_wired_apis"`
 	SemanticallyModeled int      `json:"semantically_modeled"`
 	ObservedAPIs        int      `json:"observed_apis"`
+	ObservedAPINames    []string `json:"observed_api_names,omitempty"`
 	UnimplementedAPIs   []string `json:"unimplemented_apis,omitempty"`
+}
+
+type hapticsResult struct {
+	Activations   uint64 `json:"activations"`
+	Samples       uint64 `json:"samples"`
+	PeakLevel     uint8  `json:"peak_level"`
+	MaxDurationMS int64  `json:"max_duration_ms"`
 }
 
 type eadsEventResult struct {
@@ -366,12 +376,8 @@ func run() int {
 		if err != nil {
 			result.Status, _, result.ErrorKind = classifyError(err, result.Format)
 			result.Detail = err.Error()
-		} else if result.State == frontend.StateRunning {
-			if result.InputEvents != 0 {
-				result.Level = "interactive"
-			} else if result.PostFrameSlices != 0 {
-				result.Level = "sustained"
-			}
+		} else {
+			updatePostInteractionMilestone(&result)
 		}
 		lastFrameSequence := backend.VideoFrame().Sequence
 		if lastFrameSequence > firstFrameSequence {
@@ -395,6 +401,24 @@ func run() int {
 		return 0
 	}
 	return 1
+}
+
+func updatePostInteractionMilestone(result *probeResult) {
+	if result.LastExecution != nil && result.LastExecution.Reason == "exited" {
+		result.Status = "ok_exit"
+		if result.InputEvents != 0 {
+			result.Level = "interactive"
+		}
+		return
+	}
+	if result.State != frontend.StateRunning {
+		return
+	}
+	if result.InputEvents != 0 {
+		result.Level = "interactive"
+	} else if result.PostFrameSlices != 0 {
+		result.Level = "sustained"
+	}
 }
 
 func splitControls(value string) []string {
@@ -431,12 +455,34 @@ func runProbeSlice(
 	diagnostics := backend.Diagnostics()
 	result.State = diagnostics.State
 	copyDiagnostics(result, diagnostics)
+	observeHaptics(result, backend.Haptics())
 	if diagnostics.EADS != nil {
 		result.TotalInstructions = diagnostics.EADS.TotalInstructions
 	} else if diagnostics.Execution != nil {
 		result.TotalInstructions += diagnostics.Execution.Instructions
 	}
 	return err
+}
+
+func observeHaptics(result *probeResult, state frontend.HapticsState) {
+	active := state.Level > 0 && state.Duration > 0
+	if !active {
+		result.hapticsActive = false
+		return
+	}
+	if result.Haptics == nil {
+		result.Haptics = &hapticsResult{}
+	}
+	if !result.hapticsActive {
+		result.Haptics.Activations++
+	}
+	result.hapticsActive = true
+	result.Haptics.Samples++
+	result.Haptics.PeakLevel = max(result.Haptics.PeakLevel, state.Level)
+	result.Haptics.MaxDurationMS = max(
+		result.Haptics.MaxDurationMS,
+		state.Duration.Milliseconds(),
+	)
 }
 
 func runProbeFrames(
@@ -504,7 +550,11 @@ func copyDiagnostics(result *probeResult, diagnostics integration.Diagnostics) {
 			DispatchWiredAPIs:   diagnostics.WIPI.DispatchWiredAPIs,
 			SemanticallyModeled: diagnostics.WIPI.SemanticallyModeled,
 			ObservedAPIs:        diagnostics.WIPI.ObservedAPIs,
-			UnimplementedAPIs:   append([]string(nil), diagnostics.WIPI.UnimplementedAPIs...),
+			ObservedAPINames: append(
+				[]string(nil),
+				diagnostics.WIPI.ObservedAPINames...,
+			),
+			UnimplementedAPIs: append([]string(nil), diagnostics.WIPI.UnimplementedAPIs...),
 		}
 	}
 }
