@@ -4,6 +4,8 @@ import (
 	"image"
 	"image/color"
 	"testing"
+
+	aramcore "github.com/mirusu400/aram-core/core"
 )
 
 // The published sequence must only move when the guest actually redrew, and
@@ -121,4 +123,148 @@ func TestPresentedVideoFrameIgnoresAnEmptyFrame(t *testing.T) {
 	if got := backend.presentedVideoFrame(empty); got.Image != nil || got.Sequence != 0 {
 		t.Fatalf("empty frame published %+v", got)
 	}
+}
+
+type presentingCoreMachine struct {
+	aramcore.Machine
+	frame            *image.RGBA
+	presentation     uint64
+	guestNS          int64
+	generation       uint64
+	framebufferCalls int
+}
+
+func (m *presentingCoreMachine) FramePresentation() (image.Image, uint64) {
+	return m.frame, m.presentation
+}
+
+func (m *presentingCoreMachine) VideoPresentation() aramcore.VideoPresentation {
+	return aramcore.VideoPresentation{
+		Image:      m.frame,
+		Sequence:   m.presentation,
+		GuestNS:    m.guestNS,
+		Generation: m.generation,
+	}
+}
+
+func (m *presentingCoreMachine) Framebuffer() image.Image {
+	m.framebufferCalls++
+	return m.frame
+}
+
+type unwrappingFrameMachine struct {
+	aramcore.Machine
+	frame            image.Image
+	framebufferCalls int
+}
+
+func (m *unwrappingFrameMachine) Unwrap() aramcore.Machine {
+	return m.Machine
+}
+
+func (m *unwrappingFrameMachine) Framebuffer() image.Image {
+	m.framebufferCalls++
+	return m.frame
+}
+
+// The product publishes a cheat wrapper rather than the application machine.
+// Read-only presentation discovery must reach the inner machine without using
+// the wrapper's copying Framebuffer fallback.
+func TestVideoFrameFindsPresentationThroughWrapper(t *testing.T) {
+	inner := &presentingCoreMachine{
+		frame:        image.NewRGBA(image.Rect(0, 0, 4, 3)),
+		presentation: 7,
+		guestNS:      25_000_000,
+		generation:   3,
+	}
+	wrapper := &unwrappingFrameMachine{
+		Machine: inner,
+		frame:   image.NewRGBA(image.Rect(0, 0, 9, 8)),
+	}
+	backend := &Backend{machine: wrapper}
+
+	first := backend.VideoFrame()
+	if first.Image != inner.frame || first.Sequence == 0 {
+		t.Fatalf("first wrapped presentation = %+v", first)
+	}
+	if first.GuestNS != inner.guestNS || first.Generation != inner.generation {
+		t.Fatalf("wrapped presentation timeline = %+v", first)
+	}
+	if wrapper.framebufferCalls != 0 || inner.framebufferCalls != 0 {
+		t.Fatalf(
+			"Framebuffer calls wrapper=%d inner=%d, want 0",
+			wrapper.framebufferCalls,
+			inner.framebufferCalls,
+		)
+	}
+	if repeat := backend.VideoFrame(); repeat.Sequence != first.Sequence || repeat.Image != inner.frame {
+		t.Fatalf("unchanged wrapped presentation = %+v, want sequence %d", repeat, first.Sequence)
+	}
+
+	inner.presentation++
+	inner.guestNS += 16_000_000
+	if changed := backend.VideoFrame(); changed.Sequence == first.Sequence || changed.Image != inner.frame {
+		t.Fatalf("changed wrapped presentation = %+v", changed)
+	}
+}
+
+// Unwrapping is only for optional read-only capability discovery. If the
+// inner machine has no presenter, the ordinary wrapper Framebuffer contract
+// remains authoritative.
+func TestVideoFrameFallbackStaysOnWrapper(t *testing.T) {
+	inner := &unwrappingFrameMachine{
+		frame: image.NewRGBA(image.Rect(0, 0, 4, 3)),
+	}
+	wrapperFrame := image.NewRGBA(image.Rect(0, 0, 6, 5))
+	wrapper := &unwrappingFrameMachine{
+		Machine: inner,
+		frame:   wrapperFrame,
+	}
+	backend := &Backend{machine: wrapper}
+
+	got := backend.VideoFrame()
+	if got.Image != wrapperFrame {
+		t.Fatalf("fallback image = %v, want wrapper image", got.Image)
+	}
+	if wrapper.framebufferCalls != 1 || inner.framebufferCalls != 0 {
+		t.Fatalf(
+			"Framebuffer calls wrapper=%d inner=%d, want 1/0",
+			wrapper.framebufferCalls,
+			inner.framebufferCalls,
+		)
+	}
+}
+
+var (
+	benchmarkVideoImage    image.Image
+	benchmarkVideoSequence uint64
+)
+
+func benchmarkVideoFramePresentation(b *testing.B, wrapped bool) {
+	inner := &presentingCoreMachine{
+		frame:        image.NewRGBA(image.Rect(0, 0, 240, 320)),
+		presentation: 1,
+	}
+	var machine aramcore.Machine = inner
+	if wrapped {
+		machine = &unwrappingFrameMachine{Machine: inner, frame: inner.frame}
+	}
+	backend := &Backend{machine: machine}
+	_ = backend.VideoFrame()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		frame := backend.VideoFrame()
+		benchmarkVideoImage = frame.Image
+		benchmarkVideoSequence = frame.Sequence
+	}
+}
+
+func BenchmarkVideoFramePresentationUnwrapped(b *testing.B) {
+	benchmarkVideoFramePresentation(b, false)
+}
+
+func BenchmarkVideoFramePresentationWrapped(b *testing.B) {
+	benchmarkVideoFramePresentation(b, true)
 }

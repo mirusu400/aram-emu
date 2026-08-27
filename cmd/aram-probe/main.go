@@ -41,6 +41,7 @@ type probeResult struct {
 	PostFrameSlices   uint64                `json:"post_frame_slices,omitempty"`
 	InputEvents       uint64                `json:"input_events,omitempty"`
 	FrameChanges      uint64                `json:"frame_changes,omitempty"`
+	Performance       *performanceResult    `json:"performance,omitempty"`
 	ErrorKind         frontend.FailureKind  `json:"error_kind,omitempty"`
 	Detail            string                `json:"detail,omitempty"`
 	ElapsedMS         int64                 `json:"elapsed_ms"`
@@ -123,6 +124,32 @@ func run() int {
 		"execution slices after each control release",
 	)
 	timeout := flag.Duration("timeout", 10*time.Second, "whole-probe timeout")
+	performanceDuration := flag.Duration(
+		"performance-duration",
+		0,
+		"wall-clock performance measurement duration after warmup",
+	)
+	warmupFrames := flag.Uint64(
+		"warmup-frames",
+		0,
+		"frames to execute before performance measurement",
+	)
+	cpuMode := flag.String("cpu", "", "CPU backend for this isolated probe")
+	audioMode := flag.String(
+		"audio-mode",
+		"faithful",
+		"audio policy: faithful or mix",
+	)
+	traceMode := flag.String(
+		"trace-mode",
+		"",
+		"KTF trace mode: off, counters, sampled, or full",
+	)
+	stateRoot := flag.String(
+		"state-root",
+		"",
+		"isolated save-data and save-state root",
+	)
 	flag.Parse()
 
 	started := time.Now()
@@ -133,9 +160,17 @@ func run() int {
 	}
 	parsedControls := splitControls(*controls)
 	if *input == "" || *slices == 0 || *timeout <= 0 ||
+		*performanceDuration < 0 ||
+		(*performanceDuration > 0 &&
+			(*warmupFrames == 0 || *timeout <= *performanceDuration ||
+				*postFrameSlices != 0 || len(parsedControls) != 0)) ||
+		(*audioMode != "faithful" && *audioMode != "mix") ||
+		(*traceMode != "" && *traceMode != "off" &&
+			*traceMode != "counters" && *traceMode != "sampled" &&
+			*traceMode != "full") ||
 		len(parsedControls) != 0 &&
 			(*controlHoldSlices == 0 || *controlReleaseSlices == 0) {
-		result.Detail = "input, positive slices/timeout, and positive control slice counts are required"
+		result.Detail = "invalid input, execution, performance, audio, trace, or control options"
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		writeResult(result)
 		return 2
@@ -147,8 +182,40 @@ func run() int {
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
+	if *traceMode != "" {
+		if err := os.Setenv("ARAM_KTF_TRACE", *traceMode); err != nil {
+			result.Detail = fmt.Sprintf("set trace mode: %v", err)
+			result.ElapsedMS = time.Since(started).Milliseconds()
+			writeResult(result)
+			return 2
+		}
+	}
 	backend := integration.NewBackend(nil)
 	defer backend.Close()
+	if *stateRoot != "" {
+		if err := backend.ConfigureStateRoot(*stateRoot); err != nil {
+			result.Detail = err.Error()
+			result.ElapsedMS = time.Since(started).Milliseconds()
+			writeResult(result)
+			return 2
+		}
+	}
+	if *cpuMode != "" {
+		if err := backend.ConfigureCPU(frontend.CPUSettings{Name: *cpuMode}); err != nil {
+			result.Detail = err.Error()
+			result.ElapsedMS = time.Since(started).Milliseconds()
+			writeResult(result)
+			return 2
+		}
+	}
+	if err := backend.ConfigureAudio(frontend.AudioSettings{
+		MixMode: *audioMode == "mix",
+	}); err != nil {
+		result.Detail = err.Error()
+		result.ElapsedMS = time.Since(started).Milliseconds()
+		writeResult(result)
+		return 2
+	}
 
 	var stages []frontend.OpenStage
 	info, err := backend.OpenWithProgress(
@@ -205,6 +272,26 @@ func run() int {
 			diagnostics.Execution.Reason == "exited" {
 			result.Status = "ok_exit"
 			break
+		}
+	}
+	if result.Status == "ok_frame" &&
+		*performanceDuration > 0 {
+		selectedTrace := *traceMode
+		if selectedTrace == "" {
+			selectedTrace = "default"
+		}
+		err = runPerformance(ctx, backend, &result, performanceSettings{
+			WarmupFrames: *warmupFrames,
+			Duration:     *performanceDuration,
+			CPU:          *cpuMode,
+			AudioMode:    *audioMode,
+			TraceMode:    selectedTrace,
+		})
+		if err != nil {
+			result.Status, _, result.ErrorKind = classifyError(err, result.Format)
+			result.Detail = err.Error()
+		} else {
+			result.Level = "performance"
 		}
 	}
 	if result.Status == "ok_frame" &&
@@ -291,7 +378,7 @@ func run() int {
 			result.FrameChanges = lastFrameSequence - firstFrameSequence
 		}
 	}
-	if result.Status == "runner_error" {
+	if result.Status == "runner_error" && result.Detail == "" {
 		if err := ctx.Err(); err != nil {
 			result.Status = "timeout"
 			result.Detail = err.Error()
