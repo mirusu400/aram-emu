@@ -141,6 +141,43 @@ func TestExecutionStatisticsDeltaIncludesHotPathCounters(t *testing.T) {
 	}
 }
 
+func TestCopyDiagnosticsPreservesObservedWIPIAPINames(t *testing.T) {
+	result := probeResult{}
+	copyDiagnostics(&result, integration.Diagnostics{
+		WIPI: &integration.WIPIDiagnostics{
+			ObservedAPIs:     2,
+			ObservedAPINames: []string{"MC_mdaVibrator", "MC_miscBackLight"},
+		},
+	})
+
+	if result.WIPI == nil || !slices.Equal(result.WIPI.ObservedAPINames, []string{
+		"MC_mdaVibrator",
+		"MC_miscBackLight",
+	}) {
+		t.Fatalf("copied WIPI diagnostics = %+v", result.WIPI)
+	}
+}
+
+func TestObserveHapticsRecordsGuestOutput(t *testing.T) {
+	result := probeResult{}
+	observeHaptics(&result, frontend.HapticsState{})
+	observeHaptics(&result, frontend.HapticsState{
+		Level:    45,
+		Duration: 250 * time.Millisecond,
+	})
+	observeHaptics(&result, frontend.HapticsState{
+		Level:    80,
+		Duration: 125 * time.Millisecond,
+	})
+	observeHaptics(&result, frontend.HapticsState{})
+
+	if result.Haptics == nil || result.Haptics.Activations != 1 ||
+		result.Haptics.Samples != 2 || result.Haptics.PeakLevel != 80 ||
+		result.Haptics.MaxDurationMS != 250 {
+		t.Fatalf("haptics observation = %+v", result.Haptics)
+	}
+}
+
 func TestRunPerformancePublishesCompleteMeasurement(t *testing.T) {
 	backend := &performanceBackendStub{}
 	result := probeResult{State: frontend.StateRunning}
@@ -239,5 +276,21 @@ func TestProbeDeadlineAfterGuestProgressIsAlive(t *testing.T) {
 	result.State = frontend.StateFaulted
 	if probeDeadlineReachedAfterProgress(context.DeadlineExceeded, result) {
 		t.Fatal("faulted guest was classified as alive")
+	}
+}
+
+func TestUpdatePostInteractionMilestoneRecognizesGuestExit(t *testing.T) {
+	result := probeResult{
+		Status:      "ok_frame",
+		Level:       "boots",
+		State:       frontend.StateStopped,
+		InputEvents: 3,
+		LastExecution: &executionResult{
+			Reason: "exited",
+		},
+	}
+	updatePostInteractionMilestone(&result)
+	if result.Status != "ok_exit" || result.Level != "interactive" {
+		t.Fatalf("post-interaction exit = status %q, level %q", result.Status, result.Level)
 	}
 }
