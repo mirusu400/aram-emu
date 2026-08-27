@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/mirusu400/aram-core/application"
@@ -489,7 +490,11 @@ func (backend *Backend) VideoFrame() frontend.VideoFrame {
 	if machine == nil {
 		return frontend.VideoFrame{}
 	}
-	if presenter, ok := machine.(coreFramePresenter); ok {
+	unwrapped := unwrapMachine(machine)
+	if presenter, ok := unwrapped.(coreVideoPresenter); ok {
+		return backend.presentedTimedVideoFrame(presenter)
+	}
+	if presenter, ok := unwrapped.(coreFramePresenter); ok {
 		return backend.presentedVideoFrame(presenter)
 	}
 	frame := machine.Framebuffer()
@@ -535,6 +540,35 @@ func (backend *Backend) ConfigureAudio(settings frontend.AudioSettings) error {
 			setter.SetAudioMixMode(settings.MixMode)
 		}
 	}
+	return nil
+}
+
+// ConfigureStateRoot isolates save data and save-state slots for tooling that
+// must not read or modify the operator's ordinary game saves. It must be set
+// before opening a machine.
+func (backend *Backend) ConfigureStateRoot(root string) error {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return errors.New("state root is empty")
+	}
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+	backend.mu.RLock()
+	open := backend.machine != nil
+	backend.mu.RUnlock()
+	if open {
+		return errors.New("state root cannot change while a machine is open")
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("resolve state root: %w", err)
+	}
+	if err := os.MkdirAll(absolute, 0o700); err != nil {
+		return fmt.Errorf("create state root: %w", err)
+	}
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	backend.stateRoot = absolute
 	return nil
 }
 
@@ -614,20 +648,39 @@ func (backend *Backend) factoryForCreate() aramcore.Factory {
 }
 
 func (backend *Backend) DrainAudio() frontend.AudioChunk {
+	machine := backend.currentMachine()
+	if machine == nil {
+		return frontend.AudioChunk{}
+	}
+	// Application machines publish immutable PCM under a dedicated lock at a
+	// service-advance commit point. This capability is safe to drain while a
+	// slow StepFrame still owns operationMu; older machines retain the serialized
+	// fallback below.
+	if publisher, ok := unwrapMachine(machine).(interface {
+		DrainPublishedAudio() aramcore.AudioChunk
+	}); ok {
+		return frontendAudioChunk(publisher.DrainPublishedAudio())
+	}
 	if !backend.operationMu.TryLock() {
 		return frontend.AudioChunk{}
 	}
 	defer backend.operationMu.Unlock()
 
-	machine := backend.currentMachine()
+	machine = backend.currentMachine()
 	if machine == nil {
 		return frontend.AudioChunk{}
 	}
-	chunk := machine.DrainAudio()
+	return frontendAudioChunk(machine.DrainAudio())
+}
+
+func frontendAudioChunk(chunk aramcore.AudioChunk) frontend.AudioChunk {
 	return frontend.AudioChunk{
-		SampleRate: chunk.SampleRate,
-		Channels:   chunk.Channels,
-		PCM16:      chunk.PCM16,
+		SampleRate:   chunk.SampleRate,
+		Channels:     chunk.Channels,
+		PCM16:        chunk.PCM16,
+		StartGuestNS: chunk.StartGuestNS,
+		StartSample:  chunk.StartSample,
+		Generation:   chunk.Generation,
 	}
 }
 

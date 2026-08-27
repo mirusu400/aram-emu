@@ -40,6 +40,49 @@ func TestDefaultBackendUsesKTFHandsetRunBudget(t *testing.T) {
 	}
 }
 
+func TestConfigureStateRootCreatesAnIsolatedAbsoluteRoot(t *testing.T) {
+	backend := NewBackend(nil)
+	if err := backend.ConfigureStateRoot("  "); err == nil {
+		t.Fatal("empty state root was accepted")
+	}
+	root := filepath.Join(t.TempDir(), "isolated", "state")
+	if err := backend.ConfigureStateRoot(root); err != nil {
+		t.Fatal(err)
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backend.stateRoot != absolute {
+		t.Fatalf("state root = %q, want %q", backend.stateRoot, absolute)
+	}
+	if info, err := os.Stat(absolute); err != nil || !info.IsDir() {
+		t.Fatalf("isolated state root was not created: info=%v err=%v", info, err)
+	}
+}
+
+func TestConfigureStateRootCannotChangeWhileMachineIsOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "synthetic.dat")
+	if err := os.WriteFile(path, syntheticEADS(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := NewBackend(nil)
+	t.Cleanup(func() { _ = backend.Close() })
+	if _, err := backend.Open(
+		context.Background(),
+		frontend.OpenRequest{Path: path},
+	); err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(t.TempDir(), "must-not-exist")
+	if err := backend.ConfigureStateRoot(replacement); err == nil {
+		t.Fatal("state root changed while a machine was open")
+	}
+	if _, err := os.Stat(replacement); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rejected state root was created: %v", err)
+	}
+}
+
 func TestRGBAFrameFingerprintTracksVisiblePixels(t *testing.T) {
 	frame := image.NewRGBA(image.Rect(0, 0, 4, 3))
 	before := frameFingerprint(frame)
@@ -112,6 +155,10 @@ func TestOrdinaryOpenMapsAndExecutesNativeEntry(t *testing.T) {
 		diagnostics.WIPI.SemanticallyModeled != 239 ||
 		diagnostics.WIPI.PresentCount != 0 {
 		t.Fatalf("public WIPI diagnostics after start = %+v", diagnostics.WIPI)
+	}
+	coreSnapshot, ok := backend.CoreDebugSnapshot(1)
+	if !ok || coreSnapshot.Execution == nil {
+		t.Fatalf("compact core debug snapshot = %+v, available=%t", coreSnapshot, ok)
 	}
 	frame := backend.VideoFrame()
 	if frame.Image == nil || frame.Image.Bounds().Dx() != 240 || frame.Image.Bounds().Dy() != 320 {
