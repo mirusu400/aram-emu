@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/mirusu400/aram-core/application"
@@ -539,6 +540,35 @@ func (backend *Backend) ConfigureAudio(settings frontend.AudioSettings) error {
 			setter.SetAudioMixMode(settings.MixMode)
 		}
 	}
+	return nil
+}
+
+// ConfigureStateRoot isolates save data and save-state slots for tooling that
+// must not read or modify the operator's ordinary game saves. It must be set
+// before opening a machine.
+func (backend *Backend) ConfigureStateRoot(root string) error {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return errors.New("state root is empty")
+	}
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+	backend.mu.RLock()
+	open := backend.machine != nil
+	backend.mu.RUnlock()
+	if open {
+		return errors.New("state root cannot change while a machine is open")
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("resolve state root: %w", err)
+	}
+	if err := os.MkdirAll(absolute, 0o700); err != nil {
+		return fmt.Errorf("create state root: %w", err)
+	}
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	backend.stateRoot = absolute
 	return nil
 }
 

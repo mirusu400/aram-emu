@@ -28,6 +28,22 @@ type coreDebugSnapshotter interface {
 	DebugSnapshot(int) application.DebugSnapshot
 }
 
+// CoreDebugSnapshot returns the compact machine counters used by compatibility
+// and performance tooling without serializing a full debug artifact. The
+// operation lock keeps it ordered with frame execution.
+func (backend *Backend) CoreDebugSnapshot(
+	maxEntries int,
+) (application.DebugSnapshot, bool) {
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+	machine := unwrapMachine(backend.currentMachine())
+	provider, ok := machine.(coreDebugSnapshotter)
+	if !ok {
+		return application.DebugSnapshot{}, false
+	}
+	return provider.DebugSnapshot(maxEntries), true
+}
+
 func (backend *Backend) DebugArtifacts(
 	ctx context.Context,
 ) ([]frontend.DebugArtifact, error) {
