@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 
+	aramcore "github.com/mirusu400/aram-core/core"
 	"github.com/mirusu400/aram-frontend/frontend"
 )
 
@@ -15,12 +16,37 @@ type coreFramePresenter interface {
 	FramePresentation() (image.Image, uint64)
 }
 
+type coreVideoPresenter interface {
+	VideoPresentation() aramcore.VideoPresentation
+}
+
 // presentedVideoFrame republishes the core's own presentation under the
 // frontend's frame sequence.
 func (backend *Backend) presentedVideoFrame(
 	presenter coreFramePresenter,
 ) frontend.VideoFrame {
 	frame, presentation := presenter.FramePresentation()
+	return backend.publishVideoFrame(frame, presentation, 0, 0)
+}
+
+func (backend *Backend) presentedTimedVideoFrame(
+	presenter coreVideoPresenter,
+) frontend.VideoFrame {
+	presentation := presenter.VideoPresentation()
+	return backend.publishVideoFrame(
+		presentation.Image,
+		presentation.Sequence,
+		presentation.GuestNS,
+		presentation.Generation,
+	)
+}
+
+func (backend *Backend) publishVideoFrame(
+	frame image.Image,
+	presentation uint64,
+	guestNS int64,
+	generation uint64,
+) frontend.VideoFrame {
 	if frame == nil || frame.Bounds().Dx() <= 0 || frame.Bounds().Dy() <= 0 {
 		return frontend.VideoFrame{}
 	}
@@ -31,7 +57,12 @@ func (backend *Backend) presentedVideoFrame(
 	}
 	sequence := backend.frameSequence
 	backend.mu.Unlock()
-	return frontend.VideoFrame{Image: frame, Sequence: sequence}
+	return frontend.VideoFrame{
+		Image:      frame,
+		Sequence:   sequence,
+		GuestNS:    guestNS,
+		Generation: generation,
+	}
 }
 
 // frameChanged reports whether frame differs from the last one published to
