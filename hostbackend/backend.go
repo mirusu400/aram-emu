@@ -173,6 +173,13 @@ func (b *Backend) VideoFrame() frontend.VideoFrame {
 	return frontend.VideoFrame{}
 }
 
+func (b *Backend) Haptics() frontend.HapticsState {
+	if target, ok := b.active.(frontend.HapticsBackend); ok {
+		return target.Haptics()
+	}
+	return frontend.HapticsState{}
+}
+
 func (b *Backend) RunFrame(ctx context.Context) error {
 	if target, ok := b.active.(frontend.FrameBackend); ok {
 		return target.RunFrame(ctx)
