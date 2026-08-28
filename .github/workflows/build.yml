@@ -341,8 +341,14 @@ jobs:
           CORE_SHA: ${{ needs.resolve-components.outputs.core_sha }}
           FRONTEND_SHA: ${{ needs.resolve-components.outputs.frontend_sha }}
         run: |
+          # The binder copies in the Java glue that calls the bound package's
+          # own API, so a binder older than the Ebitengine this module builds
+          # against will not compile. Take the version from go.mod so the two
+          # can never drift apart again.
+          ebiten_version="$(go list -m -f '{{.Version}}' \
+            github.com/hajimehoshi/ebiten/v2)"
           go install \
-            github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@v2.9.9
+            "github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@${ebiten_version}"
           mkdir -p android/app/libs android/app/src/main/assets
           emu_short="${GITHUB_SHA::7}"
           core_short="${CORE_SHA::7}"
