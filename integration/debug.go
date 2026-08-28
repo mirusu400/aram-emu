@@ -15,7 +15,30 @@ import (
 const (
 	coreDebugSchemaVersion = 1
 	coreDebugTraceEntries  = 4096
+	// coreDebugMemoryLimit caps the total guest bytes packed into core.mem.bin.
+	// The frontend applies its own per-artifact and bundle ceilings on top; this
+	// keeps the request bounded before it ever reaches them.
+	coreDebugMemoryLimit = 1 << 20
 )
+
+type coreDebugMemoryProvider interface {
+	DebugMemoryRegions(int) []application.DebugMemoryRegion
+}
+
+// coreMemoryIndex describes the layout of core.mem.bin so a reader can slice
+// each captured window back out without guessing boundaries.
+type coreMemoryIndex struct {
+	SchemaVersion int                `json:"schema_version"`
+	TotalBytes    int                `json:"total_bytes"`
+	Regions       []coreMemoryRegion `json:"regions"`
+}
+
+type coreMemoryRegion struct {
+	Label  string `json:"label"`
+	Base   string `json:"base"`
+	Offset int    `json:"offset"`
+	Size   int    `json:"size"`
+}
 
 type coreDebugReport struct {
 	SchemaVersion int                        `json:"schema_version"`
@@ -69,7 +92,7 @@ func (backend *Backend) DebugArtifacts(
 	}
 	data = append(data, '\n')
 
-	return []frontend.DebugArtifact{
+	artifacts := []frontend.DebugArtifact{
 		{
 			Name:      "core.json",
 			MediaType: "application/json",
@@ -79,6 +102,64 @@ func (backend *Backend) DebugArtifacts(
 			Name:      "core.log",
 			MediaType: "text/plain; charset=utf-8",
 			Data:      renderCoreDebugLog(report.Snapshot),
+		},
+	}
+	memoryArtifacts, err := coreMemoryArtifacts(machine)
+	if err != nil {
+		return nil, err
+	}
+	return append(artifacts, memoryArtifacts...), nil
+}
+
+// coreMemoryArtifacts packs the faulted machine's guest-memory windows into a
+// raw core.mem.bin plus a core.mem.json index. It returns nothing unless the
+// machine has faulted and exposed readable bytes, so a healthy session never
+// carries guest memory in its bundle.
+func coreMemoryArtifacts(machine any) ([]frontend.DebugArtifact, error) {
+	provider, ok := machine.(coreDebugMemoryProvider)
+	if !ok {
+		return nil, nil
+	}
+	regions := provider.DebugMemoryRegions(coreDebugMemoryLimit)
+	if len(regions) == 0 {
+		return nil, nil
+	}
+
+	index := coreMemoryIndex{SchemaVersion: coreDebugSchemaVersion}
+	var blob []byte
+	for _, region := range regions {
+		if len(region.Data) == 0 {
+			continue
+		}
+		index.Regions = append(index.Regions, coreMemoryRegion{
+			Label:  region.Label,
+			Base:   fmt.Sprintf("0x%08x", region.Base),
+			Offset: len(blob),
+			Size:   len(region.Data),
+		})
+		blob = append(blob, region.Data...)
+	}
+	if len(blob) == 0 {
+		return nil, nil
+	}
+	index.TotalBytes = len(blob)
+
+	indexData, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode aram-core memory index: %w", err)
+	}
+	indexData = append(indexData, '\n')
+
+	return []frontend.DebugArtifact{
+		{
+			Name:      "core.mem.json",
+			MediaType: "application/json",
+			Data:      indexData,
+		},
+		{
+			Name:      "core.mem.bin",
+			MediaType: "application/octet-stream",
+			Data:      blob,
 		},
 	}, nil
 }
