@@ -208,3 +208,50 @@ func TestFirmwareCapabilityIsAdvertised(t *testing.T) {
 		t.Fatal("the routed backend did not advertise firmware support")
 	}
 }
+
+// saveTransferAdapter is a half that offers the optional save backup contract,
+// so routing to it can be told apart from the absent-capability fallback.
+type saveTransferAdapter struct {
+	recordingAdapter
+	exported []byte
+	imported []byte
+}
+
+func (a *saveTransferAdapter) ExportSaveData() ([]byte, error) { return a.exported, nil }
+
+func (a *saveTransferAdapter) ImportSaveData(data []byte) error {
+	a.imported = data
+	return nil
+}
+
+func TestSaveTransferRoutesToActiveAdapter(t *testing.T) {
+	application := &saveTransferAdapter{
+		recordingAdapter: recordingAdapter{name: "application"},
+		exported:         []byte("blob"),
+	}
+	system := &recordingAdapter{name: "system"}
+	backend := newBackend(application, system)
+
+	blob, err := backend.ExportSaveData()
+	if err != nil || string(blob) != "blob" {
+		t.Fatalf("export routed to the wrong adapter: %q %v", blob, err)
+	}
+	if err := backend.ImportSaveData([]byte("restore")); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if string(application.imported) != "restore" {
+		t.Fatalf("import reached the adapter as %q", application.imported)
+	}
+
+	// The whole-phone adapter offers no per-title save backup, so switching to
+	// it must report the capability as absent rather than pretend to back up.
+	if _, err := backend.selectAdapter(true); err != nil {
+		t.Fatalf("select system adapter: %v", err)
+	}
+	if _, err := backend.ExportSaveData(); err == nil {
+		t.Fatal("the firmware adapter claimed save backup support")
+	}
+	if err := backend.ImportSaveData([]byte("x")); err == nil {
+		t.Fatal("the firmware adapter claimed save restore support")
+	}
+}
