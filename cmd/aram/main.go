@@ -40,6 +40,12 @@ func (backend *productBackend) InstallProductUpdate(
 }
 
 func main() {
+	// `aram save ...` is a headless save backup utility. It runs in this process
+	// rather than launching the GUI or handing off to an installed runtime.
+	if len(os.Args) >= 2 && os.Args[1] == "save" {
+		os.Exit(runSaveCommand(os.Args[2:]))
+	}
+
 	if forwarded, err := bootstrap.ForwardToInstalled(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "aram: installed runtime:", err)
 	} else if forwarded {

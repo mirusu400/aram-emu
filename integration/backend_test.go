@@ -280,6 +280,10 @@ func (unavailablePicker) OpenFirmwareDirectory(string) (string, error) {
 	return "", frontend.ErrPickerUnavailable
 }
 
+func (unavailablePicker) OpenSaveBackupFile() (string, error) {
+	return "", frontend.ErrPickerUnavailable
+}
+
 func (unavailablePicker) ChooseRecent([]string) (string, error) {
 	return "", frontend.ErrPickerUnavailable
 }
@@ -330,6 +334,10 @@ func (pathPicker) OpenFontFile() (string, error) {
 }
 
 func (pathPicker) OpenFirmwareDirectory(string) (string, error) {
+	return "", frontend.ErrPickerUnavailable
+}
+
+func (pathPicker) OpenSaveBackupFile() (string, error) {
 	return "", frontend.ErrPickerUnavailable
 }
 

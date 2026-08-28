@@ -262,6 +262,24 @@ func (b *Backend) DebugArtifacts(ctx context.Context) ([]frontend.DebugArtifact,
 	return nil, nil
 }
 
+// ExportSaveData and ImportSaveData forward the save backup contract to the
+// active adapter. The whole-phone adapter commits its NAND on Close and does
+// not offer per-title save export, so a firmware session reports the capability
+// as absent rather than pretending to back up.
+func (b *Backend) ExportSaveData() ([]byte, error) {
+	if target, ok := b.active.(frontend.SaveTransferBackend); ok {
+		return target.ExportSaveData()
+	}
+	return nil, errors.New("this input does not support save backup")
+}
+
+func (b *Backend) ImportSaveData(data []byte) error {
+	if target, ok := b.active.(frontend.SaveTransferBackend); ok {
+		return target.ImportSaveData(data)
+	}
+	return errors.New("this input does not support save restore")
+}
+
 func (b *Backend) BackendName() string {
 	if target, ok := b.active.(frontend.BackendNamer); ok {
 		return target.BackendName()
@@ -278,3 +296,4 @@ func DefaultSystemOptions() systemintegration.Options {
 
 var _ frontend.Backend = (*Backend)(nil)
 var _ frontend.FirmwareBackend = (*Backend)(nil)
+var _ frontend.SaveTransferBackend = (*Backend)(nil)
