@@ -576,6 +576,10 @@ func (backend *Backend) ConfigureStateRoot(root string) error {
 // the handset fallback font.
 var _ frontend.FontBackend = (*Backend)(nil)
 
+// Backend serves the optional save backup interface so a user can export and
+// restore a title's writable storage.
+var _ frontend.SaveTransferBackend = (*Backend)(nil)
+
 // ConfigureFont records the handset fallback font selection. A built-in name is
 // stored directly; a user-supplied font file is built and registered once, and
 // its content-addressed name is stored instead. The choice is baked into the
