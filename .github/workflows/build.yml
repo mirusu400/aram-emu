@@ -16,6 +16,9 @@ on:
       authd_ref:
         description: aram-authd override (blank uses product-components.json)
         required: false
+      ebiten_ref:
+        description: ebiten fork override for the RG DS build (blank uses product-components.json)
+        required: false
   release:
     types:
       - published
@@ -35,6 +38,7 @@ jobs:
       core_sha: ${{ steps.revisions.outputs.core_sha }}
       frontend_sha: ${{ steps.revisions.outputs.frontend_sha }}
       authd_sha: ${{ steps.revisions.outputs.authd_sha }}
+      ebiten_sha: ${{ steps.revisions.outputs.ebiten_sha }}
     steps:
       - name: Check out product manifest
         uses: actions/checkout@v6
@@ -50,19 +54,24 @@ jobs:
           CORE_REF_OVERRIDE: ${{ inputs.core_ref }}
           FRONTEND_REF_OVERRIDE: ${{ inputs.frontend_ref }}
           AUTHD_REF_OVERRIDE: ${{ inputs.authd_ref }}
+          EBITEN_REF_OVERRIDE: ${{ inputs.ebiten_ref }}
         run: |
           core_ref="${CORE_REF_OVERRIDE:-$(jq -r '.core' product-components.json)}"
           frontend_ref="${FRONTEND_REF_OVERRIDE:-$(jq -r '.frontend' product-components.json)}"
           authd_ref="${AUTHD_REF_OVERRIDE:-$(jq -r '.authd' product-components.json)}"
+          ebiten_ref="${EBITEN_REF_OVERRIDE:-$(jq -r '.ebiten' product-components.json)}"
           test -n "${core_ref}"
           test "${core_ref}" != "null"
           test -n "${frontend_ref}"
           test "${frontend_ref}" != "null"
           test -n "${authd_ref}"
           test "${authd_ref}" != "null"
+          test -n "${ebiten_ref}"
+          test "${ebiten_ref}" != "null"
           echo "core_ref=${core_ref}" >> "${GITHUB_OUTPUT}"
           echo "frontend_ref=${frontend_ref}" >> "${GITHUB_OUTPUT}"
           echo "authd_ref=${authd_ref}" >> "${GITHUB_OUTPUT}"
+          echo "ebiten_ref=${ebiten_ref}" >> "${GITHUB_OUTPUT}"
 
       - name: Check out core
         uses: actions/checkout@v6
@@ -88,6 +97,15 @@ jobs:
           path: aram-authd
           persist-credentials: false
 
+      - name: Check out ebiten fork
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/ebiten
+          ref: ${{ steps.requested.outputs.ebiten_ref }}
+          path: ebiten
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Record exact component revisions
         id: revisions
         shell: bash
@@ -95,6 +113,7 @@ jobs:
           echo "core_sha=$(git -C aram-core rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
           echo "frontend_sha=$(git -C aram-frontend rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
           echo "authd_sha=$(git -C aram-authd rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+          echo "ebiten_sha=$(git -C ebiten rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
 
   desktop:
     name: ${{ matrix.name }}
@@ -551,6 +570,140 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  rgds:
+    name: RG DS (ROCKNIX linux/arm64)
+    needs:
+      - resolve-components
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out product
+        uses: actions/checkout@v6
+        with:
+          path: aram-emu
+          persist-credentials: false
+
+      - name: Check out core
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-core
+          ref: ${{ needs.resolve-components.outputs.core_sha }}
+          path: aram-core
+          persist-credentials: false
+
+      - name: Check out frontend
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-frontend
+          ref: ${{ needs.resolve-components.outputs.frontend_sha }}
+          path: aram-frontend
+          persist-credentials: false
+
+      - name: Check out authd
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-authd
+          ref: ${{ needs.resolve-components.outputs.authd_sha }}
+          path: aram-authd
+          persist-credentials: false
+
+      # The RG DS handheld has no window system, only a Mali GPU behind DRM/KMS.
+      # Only this target swaps Ebitengine for the fork that adds the GBM/KMS
+      # backend; every other platform keeps upstream Ebitengine from go.mod.
+      - name: Check out ebiten GBM/KMS fork
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/ebiten
+          ref: ${{ needs.resolve-components.outputs.ebiten_sha }}
+          path: ebiten
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: aram-emu/go.mod
+          cache-dependency-path: |
+            aram-emu/go.sum
+            aram-emu/go.work.sum
+            aram-core/go.sum
+            aram-frontend/go.sum
+            aram-authd/go.sum
+
+      - name: Point the workspace at the GBM/KMS fork
+        working-directory: aram-emu
+        shell: bash
+        run: |
+          # A filesystem replace needs no version and bypasses go.sum, matching
+          # the local RG DS workflow. The sibling checkout is pinned by SHA.
+          go work edit \
+            -replace github.com/hajimehoshi/ebiten/v2=../ebiten
+          resolved="$(go list -m -f '{{.Path}} {{.Replace.Dir}}' \
+            github.com/hajimehoshi/ebiten/v2)"
+          echo "ebiten resolves to: ${resolved}"
+          case "${resolved}" in
+            *"/ebiten") ;;
+            *) echo "ebiten replace did not take effect" >&2; exit 1 ;;
+          esac
+
+      - name: Vet RG DS target
+        working-directory: aram-emu
+        env:
+          GOOS: linux
+          GOARCH: arm64
+          CGO_ENABLED: "0"
+        run: go vet ./cmd/aram ./cmd/aram-probe
+
+      - name: Build RG DS package
+        working-directory: aram-emu
+        shell: bash
+        env:
+          GOOS: linux
+          GOARCH: arm64
+          CGO_ENABLED: "0"
+          CORE_SHA: ${{ needs.resolve-components.outputs.core_sha }}
+          FRONTEND_SHA: ${{ needs.resolve-components.outputs.frontend_sha }}
+          EBITEN_SHA: ${{ needs.resolve-components.outputs.ebiten_sha }}
+        run: |
+          mkdir -p build/package dist
+          emu_short="${GITHUB_SHA::7}"
+          core_short="${CORE_SHA::7}"
+          frontend_short="${FRONTEND_SHA::7}"
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            build_version="${GITHUB_REF_NAME}"
+          elif [[ ("${GITHUB_EVENT_NAME}" == "push" ||
+                   "${GITHUB_EVENT_NAME}" == "workflow_dispatch") &&
+                  "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            build_version="Nightly-${emu_short}-c${core_short}-f${frontend_short}"
+          else
+            build_version="Development-${emu_short}-c${core_short}-f${frontend_short}"
+          fi
+          go build -trimpath \
+            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${build_version}" \
+            -o build/package/aram ./cmd/aram
+          go build -trimpath -ldflags="-s -w" \
+            -o build/package/aram-probe ./cmd/aram-probe
+          # Fail loudly if the toolchain produced anything but an AArch64 ELF.
+          readelf -h build/package/aram | grep -q 'Machine:.*AArch64'
+          readelf -h build/package/aram-probe | grep -q 'Machine:.*AArch64'
+          cp README.md build/package/
+          {
+            echo "aram-emu=${GITHUB_SHA}"
+            echo "aram-core=${CORE_SHA}"
+            echo "aram-frontend=${FRONTEND_SHA}"
+            echo "aram-authd=${{ needs.resolve-components.outputs.authd_sha }}"
+            echo "ebiten=${EBITEN_SHA}"
+          } > build/package/BUILD-INFO.txt
+          tar -C build/package -czf dist/aram-rocknix-arm64.tar.gz .
+          test -s dist/aram-rocknix-arm64.tar.gz
+
+      - name: Upload RG DS build
+        uses: actions/upload-artifact@v7
+        with:
+          name: aram-rocknix-arm64
+          path: aram-emu/dist/aram-rocknix-arm64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
   publish-nightly:
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -560,6 +713,7 @@ jobs:
       - desktop
       - android
       - web
+      - rgds
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -580,12 +734,14 @@ jobs:
           test -f aram-macos-arm64.tar.gz
           test -f aram-android-universal.apk
           test -f aram-web.zip
+          test -f aram-rocknix-arm64.tar.gz
           sha256sum \
             aram-windows-amd64.zip \
             aram-linux-amd64.tar.gz \
             aram-macos-arm64.tar.gz \
             aram-android-universal.apk \
             aram-web.zip \
+            aram-rocknix-arm64.tar.gz \
             > SHA256SUMS.txt
       - name: Publish rolling Nightly release
         env:
