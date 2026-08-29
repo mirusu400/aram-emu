@@ -352,7 +352,11 @@ func (backend *Backend) Capability(command frontend.BackendCommand) frontend.Cap
 		supported = state == frontend.StateReady ||
 			state == frontend.StatePaused
 	case frontend.CommandLoadState, frontend.CommandSaveState:
-		supported = state != frontend.StateEmpty && state != frontend.StateRunning
+		// Save and load stay available while running: ExecuteCommand and
+		// RunFrame share operationMu, so a slot is snapshotted or restored
+		// atomically between guest frames. Requiring a pause first was a
+		// needless step for the common mid-play quick save / quick load.
+		supported = state != frontend.StateEmpty
 	case frontend.CommandFastForward:
 		return frontend.Capability{
 			Reason: "The core machine contract does not expose speed control yet",
@@ -444,8 +448,14 @@ func (backend *Backend) ExecuteCommand(
 	case frontend.CommandSaveState:
 		err = backend.saveState(request.Slot)
 	case frontend.CommandLoadState:
-		backend.setRunRequested(false)
-		err = backend.loadState(request.Slot)
+		// Preserve the play intent across a load so a mid-game quick-load
+		// resumes from the restored slot instead of forcing a pause. Core
+		// LoadState rejects a bad slot before mutating, so on failure the
+		// machine is unchanged and it is safe to keep running.
+		resume := backend.runningRequested()
+		if err = backend.loadState(request.Slot); err == nil {
+			backend.setRunRequested(resume && machineCanContinue(machine.State()))
+		}
 	default:
 		err = fmt.Errorf("unsupported backend command %q", request.Command)
 	}
