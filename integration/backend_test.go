@@ -266,6 +266,59 @@ func TestBackendKeepsLogicalRunStateAcrossCoreFrameYields(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadStateWorkWhileRunning(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "synthetic.dat")
+	if err := os.WriteFile(path, syntheticEADS(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := NewBackend(nil)
+	t.Cleanup(func() { _ = backend.Close() })
+	if err := backend.ConfigureStateRoot(filepath.Join(t.TempDir(), "state")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backend.Open(
+		context.Background(),
+		frontend.OpenRequest{Path: path},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Execute(context.Background(), frontend.CommandStart); err != nil {
+		t.Fatal(err)
+	}
+	if backend.State() != frontend.StateRunning {
+		t.Fatalf("state after start = %s", backend.State())
+	}
+
+	// A running machine must offer both slots without a pause first.
+	if capability := backend.Capability(frontend.CommandSaveState); !capability.Supported {
+		t.Fatalf("save-state capability while running = %+v", capability)
+	}
+	if capability := backend.Capability(frontend.CommandLoadState); !capability.Supported {
+		t.Fatalf("load-state capability while running = %+v", capability)
+	}
+
+	if err := backend.ExecuteCommand(
+		context.Background(),
+		frontend.CommandRequest{Command: frontend.CommandSaveState, Slot: 1, Speed: 1},
+	); err != nil {
+		t.Fatalf("save state while running: %v", err)
+	}
+	if backend.State() != frontend.StateRunning {
+		t.Fatalf("state after mid-play save = %s, want running", backend.State())
+	}
+
+	if err := backend.ExecuteCommand(
+		context.Background(),
+		frontend.CommandRequest{Command: frontend.CommandLoadState, Slot: 1, Speed: 1},
+	); err != nil {
+		t.Fatalf("load state while running: %v", err)
+	}
+	// A mid-play quick-load resumes rather than dropping to paused.
+	if backend.State() != frontend.StateRunning {
+		t.Fatalf("state after mid-play load = %s, want running", backend.State())
+	}
+}
+
 type unavailablePicker struct{}
 
 func (unavailablePicker) OpenFile() (string, error) {
