@@ -25,6 +25,27 @@ func (a authdNetAdapter) Handle(call netauth.Call, mem netauth.Memory) (uint32, 
 	)
 }
 
+// Complete forwards an aram-authd backend's asynchronous carrier completion to
+// the netauth seam. Backends that do not emulate the handshake response (Nop,
+// Recorder) do not implement authd.CompletionSource, so this returns nil and
+// the runtime keeps its default behavior.
+func (a authdNetAdapter) Complete(call netauth.Call) *netauth.Completion {
+	source, ok := a.backend.(authd.CompletionSource)
+	if !ok {
+		return nil
+	}
+	completion := source.Complete(authd.Call{Ordinal: call.Ordinal, Args: call.Args})
+	if completion == nil {
+		return nil
+	}
+	return &netauth.Completion{
+		Event:       completion.Event,
+		Arg1:        completion.Arg1,
+		Response:    completion.Response,
+		DelayFrames: completion.DelayFrames,
+	}
+}
+
 // authdMemory bridges netauth.Memory to authd.Memory (identical method sets).
 type authdMemory struct{ mem netauth.Memory }
 
