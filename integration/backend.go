@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	authd "github.com/mirusu400/aram-authd"
 	"github.com/mirusu400/aram-core/application"
 	"github.com/mirusu400/aram-core/cheat"
 	aramcore "github.com/mirusu400/aram-core/core"
@@ -68,6 +69,10 @@ func NewBackend(factory aramcore.Factory) *Backend {
 		defaultFactory := application.NewFactory()
 		defaultFactory.FrameRunBudget = application.DefaultHandsetRunBudget
 		defaultFactory.KTFRunBudget = application.DefaultKTFHandsetRunBudget
+		// Emulate a successful LGT carrier DRM/auth handshake. There is no live
+		// carrier behind the emulator, so titles that gate startup on it (the
+		// "서버 접속중"/"통화료 인증" wait) would hang forever without it.
+		defaultFactory.RaptorNet = AuthdRaptorNet(authd.Grant{})
 		factory = defaultFactory
 	}
 	return &Backend{factory: factory, cheatStore: newCheatCatalogStore()}
