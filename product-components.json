@@ -1,5 +1,6 @@
 {
   "core": "2621532dc9eec6117ec5492ae14dbe29dc3fd2ce",
-  "frontend": "1e6f3c97b0b43726a6394ed8de6fb2d6ba5eb665",
-  "authd": "4053607356dd89e621740388f7ec761e27ecee58"
+  "frontend": "3cfe72f3b37236718704401ebaad67273cbb1789",
+  "authd": "4053607356dd89e621740388f7ec761e27ecee58",
+  "ebiten": "4701562e10e0a227e517965c6b8e587dc2ab66eb"
 }

@@ -54,7 +54,7 @@ func (machine *fakeSystemMachine) Position() systemmachine.Position { return mac
 func (machine *fakeSystemMachine) Controls() []string {
 	return []string{
 		"soft-left", "soft-right", "up", "down", "left", "right", "ok", "back",
-		"digit-0", "digit-1", "pound",
+		"send", "end", "volume-up", "volume-down", "digit-0", "digit-1", "pound",
 	}
 }
 func (machine *fakeSystemMachine) Run(_ context.Context, budget uint64) cpu.Result {
@@ -189,11 +189,35 @@ func TestBackendOpensFirmwareDirectoryRunsFramesAndMapsControls(t *testing.T) {
 	if machine.lastControl != "up" {
 		t.Fatalf("up mapped to %q", machine.lastControl)
 	}
+	if err := backend.QueueInput(frontend.InputEvent{Control: "volume-up", Pressed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if machine.lastControl != "volume-up" {
+		t.Fatalf("volume-up mapped to %q", machine.lastControl)
+	}
+	if err := backend.QueueInput(frontend.InputEvent{Control: "volume-down", Pressed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if machine.lastControl != "volume-down" {
+		t.Fatalf("volume-down mapped to %q", machine.lastControl)
+	}
 	if err := backend.QueueInput(frontend.InputEvent{Control: "back", Pressed: true}); err != nil {
 		t.Fatal(err)
 	}
 	if machine.lastControl != "back" {
 		t.Fatalf("back mapped to %q", machine.lastControl)
+	}
+	if err := backend.QueueInput(frontend.InputEvent{Control: "send", Pressed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if machine.lastControl != "send" {
+		t.Fatalf("send mapped to %q", machine.lastControl)
+	}
+	if err := backend.QueueInput(frontend.InputEvent{Control: "end", Pressed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if machine.lastControl != "end" {
+		t.Fatalf("end mapped to %q", machine.lastControl)
 	}
 	if err := backend.QueueInput(frontend.InputEvent{Control: "menu", Pressed: true}); err != nil {
 		t.Fatal(err)
@@ -201,7 +225,7 @@ func TestBackendOpensFirmwareDirectoryRunsFramesAndMapsControls(t *testing.T) {
 	if machine.lastControl != "soft-left" {
 		t.Fatalf("menu fallback mapped to %q", machine.lastControl)
 	}
-	if err := backend.QueueInput(frontend.InputEvent{Control: "end", Pressed: true}); err == nil {
+	if err := backend.QueueInput(frontend.InputEvent{Control: "not-a-board-control", Pressed: true}); err == nil {
 		t.Fatal("unsupported board control was accepted")
 	}
 }
