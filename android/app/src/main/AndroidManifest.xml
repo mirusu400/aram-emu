@@ -47,6 +47,15 @@
             </intent-filter>
         </activity>
 
+        <!-- On a dual-screen handset the keypad runs on the second physical
+             panel as its own Activity in this process. Not exported; only
+             MainActivity launches it, onto the other display. -->
+        <activity
+            android:name=".KeypadActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:exported="false"
+            android:launchMode="singleTask" />
+
         <!-- Serves downloaded product packages to the package installer via
              per-intent read grants only. -->
         <provider

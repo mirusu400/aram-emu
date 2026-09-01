@@ -25,6 +25,12 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 
+import android.app.ActivityOptions;
+import android.content.Context;
+import android.hardware.display.DisplayManager;
+import android.util.Log;
+import android.view.Display;
+
 import java.util.Locale;
 
 import java.io.BufferedInputStream;
@@ -85,9 +91,74 @@ public final class MainActivity extends Activity
         // The window's DecorView exists only after setContentView(), and the
         // API 30+ insets controller lives on that DecorView.
         enterImmersiveMode();
+        launchSecondaryKeypad();
 
         audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         handleIncomingIntent(getIntent());
+    }
+
+    // A dual-screen handset (RG DS and similar) puts the keypad on its second
+    // physical panel: the game keeps this Activity's panel, and the keypad is
+    // a second Activity of this same process launched onto the other display.
+    // The Ebitengine loop only runs while its view is an Activity's content and
+    // an app Presentation window is refused on the default panel, so a second
+    // Activity - not a Presentation - is the way to drive the other panel.
+    // KeypadActivity itself declares the frontend's secondary-keypad mode, so
+    // a single panel simply keeps the built-in on-screen deck.
+    private void launchSecondaryKeypad() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            // setLaunchDisplayId, and per-display activities, need Android 8.0.
+            return;
+        }
+        Display target = pickOtherDisplay();
+        if (target == null) {
+            return;
+        }
+        Log.i(
+                "aram-dualscreen",
+                "keypad -> display " + target.getDisplayId()
+                        + " (game on display " + currentDisplayId() + ")"
+        );
+        Intent intent = new Intent(this, KeypadActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(target.getDisplayId());
+        startActivity(intent, options.toBundle());
+    }
+
+    private Display pickOtherDisplay() {
+        DisplayManager manager =
+                (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+        if (manager == null) {
+            return null;
+        }
+        int selfID = currentDisplayId();
+        for (Display display : manager.getDisplays()) {
+            if (display.getDisplayId() == selfID) {
+                continue;
+            }
+            if (display.getState() != Display.STATE_ON) {
+                continue;
+            }
+            Display.Mode mode = display.getMode();
+            if (mode.getPhysicalWidth() < 64 || mode.getPhysicalHeight() < 64) {
+                // Skip 1x1 helper/virtual displays some launchers register.
+                continue;
+            }
+            return display;
+        }
+        return null;
+    }
+
+    @SuppressWarnings("deprecation")
+    private int currentDisplayId() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Display display = getDisplay();
+            if (display != null) {
+                return display.getDisplayId();
+            }
+        }
+        return getWindowManager().getDefaultDisplay().getDisplayId();
     }
 
     @Override

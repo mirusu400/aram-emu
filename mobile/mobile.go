@@ -174,6 +174,21 @@ func Command(commandID string) {
 	game.instance().DispatchExternalCommand(commandID)
 }
 
+// PressControl reports that a control on a second physical panel - a keypad
+// Activity on the handset's other display - was pressed or released. The
+// control names match the on-screen deck (dpad, soft keys, num0-9, ...), so
+// the press runs through the shared frontend's ordinary input path.
+func PressControl(control string, down bool) {
+	game.instance().SetHostControl(control, down)
+}
+
+// SetSecondaryKeypadActive tells the frontend whether a second physical panel
+// is currently showing the keypad. While active the shell hides its on-screen
+// control deck and keypad so the game panel is unobstructed.
+func SetSecondaryKeypadActive(active bool) {
+	game.instance().SetSecondaryKeypadActive(active)
+}
+
 // Pause and Resume mirror native Activity lifecycle transitions.
 func Pause() {
 	game.instance().SetHostActive(false)
