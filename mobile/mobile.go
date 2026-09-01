@@ -189,6 +189,13 @@ func SetSecondaryKeypadActive(active bool) {
 	game.instance().SetSecondaryKeypadActive(active)
 }
 
+// SetControllerConnected reports whether the host sees a physical controller.
+// On a touch layout the frontend then hides its on-screen controls by default,
+// since the player has real buttons; a settings toggle keeps them if wanted.
+func SetControllerConnected(connected bool) {
+	game.instance().SetControllerConnected(connected)
+}
+
 // Pause and Resume mirror native Activity lifecycle transitions.
 func Pause() {
 	game.instance().SetHostActive(false)

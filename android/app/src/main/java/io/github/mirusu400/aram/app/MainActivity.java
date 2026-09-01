@@ -28,8 +28,10 @@ import android.widget.Toast;
 import android.app.ActivityOptions;
 import android.content.Context;
 import android.hardware.display.DisplayManager;
+import android.hardware.input.InputManager;
 import android.util.Log;
 import android.view.Display;
+import android.view.InputDevice;
 
 import java.util.Locale;
 
@@ -62,6 +64,8 @@ public final class MainActivity extends Activity
     private AudioManager audioManager;
     private AudioFocusRequest audioFocusRequest;
     private boolean pendingFirmware;
+    private InputManager inputManager;
+    private InputManager.InputDeviceListener controllerListener;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -92,9 +96,63 @@ public final class MainActivity extends Activity
         // API 30+ insets controller lives on that DecorView.
         enterImmersiveMode();
         launchSecondaryKeypad();
+        setupControllerDetection();
 
         audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         handleIncomingIntent(getIntent());
+    }
+
+    // The frontend hides its on-screen controls while a real controller is
+    // attached (RG DS and similar handhelds have built-in buttons), so the
+    // host reports the current controller state and keeps it live as devices
+    // come and go. A settings toggle in the frontend can override the hide.
+    private void setupControllerDetection() {
+        inputManager = (InputManager) getSystemService(INPUT_SERVICE);
+        if (inputManager == null) {
+            return;
+        }
+        controllerListener = new InputManager.InputDeviceListener() {
+            @Override
+            public void onInputDeviceAdded(int deviceId) {
+                updateControllerState();
+            }
+
+            @Override
+            public void onInputDeviceRemoved(int deviceId) {
+                updateControllerState();
+            }
+
+            @Override
+            public void onInputDeviceChanged(int deviceId) {
+                updateControllerState();
+            }
+        };
+        inputManager.registerInputDeviceListener(controllerListener, null);
+        updateControllerState();
+    }
+
+    private void updateControllerState() {
+        Mobile.setControllerConnected(hasPhysicalController());
+    }
+
+    private boolean hasPhysicalController() {
+        if (inputManager == null) {
+            return false;
+        }
+        for (int deviceId : inputManager.getInputDeviceIds()) {
+            InputDevice device = inputManager.getInputDevice(deviceId);
+            if (device == null || device.isVirtual()) {
+                continue;
+            }
+            int sources = device.getSources();
+            boolean isGamepad =
+                    (sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+                            || (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
+            if (isGamepad) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // A dual-screen handset (RG DS and similar) puts the keypad on its second
@@ -453,6 +511,10 @@ public final class MainActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        if (inputManager != null && controllerListener != null) {
+            inputManager.unregisterInputDeviceListener(controllerListener);
+            controllerListener = null;
+        }
         if (textInputDialog != null) {
             textInputDialog.dismiss();
             textInputDialog = null;
