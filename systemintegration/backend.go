@@ -156,7 +156,9 @@ func (backend *Backend) OpenWithProgress(
 	}
 	machineOptions := systemmachine.Options{BackendMode: backend.options.CPUBackendMode}
 	if backend.options.CPUBackend != "" {
-		newCPU, resolveErr := application.ResolveCPUBackend(backend.options.CPUBackend)
+		newCPU, resolveErr := application.ResolveCPUBackend(
+			concreteSystemCPUBackend(backend.options.CPUBackend),
+		)
 		if resolveErr != nil {
 			closeFiles()
 			return info, systemBackendError(frontend.FailureBackendUnavailable, resolveErr)
@@ -226,7 +228,7 @@ func (backend *Backend) ConfigureCPU(settings frontend.CPUSettings) error {
 	if name == "" {
 		name = application.FastestBackend
 	}
-	if _, err := application.ResolveCPUBackend(name); err != nil {
+	if _, err := application.ResolveCPUBackend(concreteSystemCPUBackend(name)); err != nil {
 		return err
 	}
 	backend.operationMu.Lock()
