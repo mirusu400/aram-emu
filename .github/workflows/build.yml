@@ -804,7 +804,9 @@ jobs:
     needs:
       - resolve-components
       - desktop
+      - android
       - web
+      - rgds
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -821,12 +823,16 @@ jobs:
           test -f aram-windows-amd64.zip
           test -f aram-linux-amd64.tar.gz
           test -f aram-macos-arm64.tar.gz
+          test -f aram-rocknix-arm64.tar.gz
           test -f aram-web.zip
+          test -f aram-android-universal.apk
           sha256sum \
             aram-windows-amd64.zip \
             aram-linux-amd64.tar.gz \
             aram-macos-arm64.tar.gz \
+            aram-rocknix-arm64.tar.gz \
             aram-web.zip \
+            aram-android-universal.apk \
             > SHA256SUMS.txt
       - name: Attach archives to the published release
         env:
