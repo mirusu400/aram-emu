@@ -14,7 +14,7 @@ is not the standalone frontend preview: the AAR statically includes the pinned
 - audio focus and gamepad/touch delivery through Ebitengine;
 - handing downloaded product updates to the system package installer.
 
-## Local Nightly build
+## Local build (Nightly and Stable)
 
 Prerequisites are Go, `ebitenmobile`, JDK 17, Android SDK 36, Android NDK
 28.2.13676358 or newer, and Gradle 8.14.1. NDK r28+ is required so the Go JNI
@@ -34,17 +34,25 @@ The Gradle build derives its density-specific and adaptive launcher icons from
 the desktop window. Set `ARAM_ICON_SOURCE` to an absolute PNG path only when
 building from a workspace with a different sibling layout.
 
-The output is
-`android/app/build/outputs/apk/debug/app-debug.apk`. It is debug-signed and
-uses application ID `io.github.mirusu400.aram.nightly`, so it can be installed
-beside a future store-signed Stable app. CI publishes the same arm64 and x86_64
-APK as `aram-android-universal.apk`, which works on physical arm64 devices and
-the x86_64 Android Virtual Devices commonly used on desktop hosts.
+`assembleDebug` produces the Nightly channel at
+`android/app/build/outputs/apk/debug/app-debug.apk`: launcher label `ARAM
+Nightly`, application ID `io.github.mirusu400.aram.nightly`, signed with
+`nightly.keystore`. `assembleRelease` produces the Stable channel at
+`android/app/build/outputs/apk/release/app-release.apk`: launcher label `ARAM`,
+base application ID `io.github.mirusu400.aram`, signed with `stable.keystore`.
+The differing application IDs let the two channels install side by side; the
+per-channel launcher label is injected by `resValue` in `app/build.gradle`, not
+`strings.xml`. CI publishes the arm64+x86_64 APK for whichever channel the event
+selects as `aram-android-universal.apk`, which works on physical arm64 devices
+and the x86_64 Android Virtual Devices commonly used on desktop hosts.
 
-Nightlies use the repository-owned `nightly.keystore` so a newer CI build can
-upgrade an installed Nightly. Its credentials are intentionally public and
-provide continuity, not release authenticity; this key must never sign a
-Stable or store build.
+Each channel keeps a fixed repository-owned signer so a newer CI build can
+upgrade an installed app in place: Nightly uses `nightly.keystore`, Stable uses
+`stable.keystore` (`CN=ARAM`). Both keystores' credentials are intentionally
+public and provide update continuity, not release authenticity; the Nightly key
+must never sign the Stable channel or vice versa. A future store-grade Stable
+release would swap `stable.keystore` for a privately held key, a one-time re-key
+that existing Stable installs cannot update across.
 
 For a smaller local arm64-only build, bind with `-target android/arm64` and set
 `ARAM_ANDROID_ABIS=arm64-v8a` for the Gradle invocation.
@@ -68,6 +76,7 @@ non-exported `UpdateProvider` with a per-intent read grant; the user confirms
 the update there while ARAM keeps running. Android asks once per source for
 the `REQUEST_INSTALL_PACKAGES` "install unknown apps" approval. Because the
 installer reads the package after the hand-off, `files/updates` is cleared on
-the next launch rather than immediately. Nightly-over-Nightly updates work
-because CI signs every Nightly with the repository `nightly.keystore`; a
-Stable app from a different signer must be installed manually.
+the next launch rather than immediately. In-app updates work within a channel
+because CI signs every Nightly with `nightly.keystore` and every Stable with
+`stable.keystore`; the two channels are separate apps (different application IDs
+and signers), so moving between them is a manual install, not an in-app update.

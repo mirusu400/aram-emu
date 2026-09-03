@@ -23,6 +23,12 @@ android {
             keyAlias "aram-nightly"
             keyPassword "aram-nightly"
         }
+        stable {
+            storeFile file("../stable.keystore")
+            storePassword "aram-stable"
+            keyAlias "aram-stable"
+            keyPassword "aram-stable"
+        }
     }
 
     defaultConfig {
@@ -42,9 +48,12 @@ android {
             applicationIdSuffix ".nightly"
             versionNameSuffix "-nightly"
             signingConfig signingConfigs.nightly
+            resValue "string", "app_name", "ARAM Nightly"
         }
         release {
             minifyEnabled false
+            signingConfig signingConfigs.stable
+            resValue "string", "app_name", "ARAM"
         }
     }
 

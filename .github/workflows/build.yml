@@ -396,20 +396,45 @@ jobs:
             echo "aram-authd=${{ needs.resolve-components.outputs.authd_sha }}"
           } > android/app/src/main/assets/BUILD-INFO.txt
 
-      - name: Build and lint Android Nightly APK
+      - name: Build and lint Android APK
         working-directory: aram-emu
+        shell: bash
         env:
           ARAM_VERSION_CODE: ${{ github.run_number }}
           ARAM_VERSION_NAME: ${{ github.sha }}
-        run: >-
-          gradle --no-daemon --stacktrace -p android
-          :app:lintDebug :app:assembleDebug
+        run: |
+          # Lint always runs against the debug variant (the known-good gate);
+          # the shipped variant depends on the channel. A release event ships
+          # the stable channel ("ARAM", base package, stable-signed); every
+          # other event ships the rolling nightly ("ARAM Nightly", .nightly
+          # package, nightly-signed).
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            gradle --no-daemon --stacktrace -p android \
+              :app:lintDebug :app:assembleRelease
+            {
+              echo "ARAM_APK=android/app/build/outputs/apk/release/app-release.apk"
+              echo "ARAM_APP_PKG=io.github.mirusu400.aram"
+              echo "ARAM_APP_LABEL=ARAM"
+              echo "ARAM_CERT_CN=CN=ARAM, O=ARAM, C=KR"
+              echo "ARAM_CERT_SHA=98:98:4B:3B:FF:4E:1D:2A:13:09:AC:26:C3:6F:97:CC:5A:A2:49:90:87:E7:94:85:BE:85:8A:5A:1E:59:2F:29"
+            } >> "${GITHUB_ENV}"
+          else
+            gradle --no-daemon --stacktrace -p android \
+              :app:lintDebug :app:assembleDebug
+            {
+              echo "ARAM_APK=android/app/build/outputs/apk/debug/app-debug.apk"
+              echo "ARAM_APP_PKG=io.github.mirusu400.aram.nightly"
+              echo "ARAM_APP_LABEL=ARAM Nightly"
+              echo "ARAM_CERT_CN=CN=ARAM Nightly, O=ARAM, C=KR"
+              echo "ARAM_CERT_SHA=F6:03:45:3C:75:84:DF:C3:CA:E6:B1:FB:4C:75:67:71:D1:7D:56:12:7D:38:1B:09:B4:18:62:B1:3A:3F:6C:C8"
+            } >> "${GITHUB_ENV}"
+          fi
 
       - name: Verify Android package
         working-directory: aram-emu
         shell: bash
         run: |
-          apk="android/app/build/outputs/apk/debug/app-debug.apk"
+          apk="${ARAM_APK}"
           test -f "${apk}"
           test "$(unzip -Z1 "${apk}" | grep -c '/libgojni.so$')" -eq 2
           for abi in arm64-v8a x86_64; do
@@ -435,7 +460,9 @@ jobs:
             sort -V | tail -n 1)"
           test -x "${aapt}"
           "${aapt}" dump badging "${apk}" > android/app/build/apk-badging.txt
-          grep -F "package: name='io.github.mirusu400.aram.nightly'" \
+          grep -F "package: name='${ARAM_APP_PKG}'" \
+            android/app/build/apk-badging.txt
+          grep -F "application-label:'${ARAM_APP_LABEL}'" \
             android/app/build/apk-badging.txt
           grep -F "launchable-activity: name='io.github.mirusu400.aram.app.MainActivity'" \
             android/app/build/apk-badging.txt
@@ -449,10 +476,10 @@ jobs:
           done
           keytool -printcert -jarfile "${apk}" \
             > android/app/build/apk-signing.txt
-          grep -F "Owner: CN=ARAM Nightly, O=ARAM, C=KR" \
+          grep -F "Owner: ${ARAM_CERT_CN}" \
             android/app/build/apk-signing.txt
           grep -F \
-            "SHA256: F6:03:45:3C:75:84:DF:C3:CA:E6:B1:FB:4C:75:67:71:D1:7D:56:12:7D:38:1B:09:B4:18:62:B1:3A:3F:6C:C8" \
+            "SHA256: ${ARAM_CERT_SHA}" \
             android/app/build/apk-signing.txt
           mkdir -p dist
           cp "${apk}" dist/aram-android-universal.apk
