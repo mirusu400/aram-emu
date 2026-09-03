@@ -870,3 +870,18 @@ jobs:
           mapfile -t assets < <(find release-assets -type f -print)
           test "${#assets[@]}" -gt 0
           gh release upload "${RELEASE_TAG}" "${assets[@]}" --clobber
+      - name: Publish the release article on aram.mir.sh
+        env:
+          DISPATCH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          if [ -z "${DISPATCH_TOKEN}" ]; then
+            echo "WEBSITE_DISPATCH_TOKEN not set; skipping website release article."
+            exit 0
+          fi
+          GH_TOKEN="${DISPATCH_TOKEN}" gh api \
+            repos/mirusu400/aram-website/dispatches \
+            -F event_type=release-published \
+            -F "client_payload[tag]=${RELEASE_TAG}"
+          echo "Signaled aram-website to publish the ${RELEASE_TAG} release article."

@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>Archived Runtime for ARM Mobiles</b><br>
-  Bring Korean feature-phone (WIPI) software back to life, on your computer, phone, or straight in the browser.
+  Bring Korean feature-phone WIPI, SKVM, and Raptor software back to life, on your computer, phone, or straight in the browser.
 </p>
 
 <p align="center">
@@ -24,10 +24,10 @@
 ## What is ARAM?
 
 ARAM is an emulator for **Korean feature-phone software**, the small games and
-apps that ran on 2000s WIPI handsets. Point it at a program you're allowed to
-use, and ARAM runs it again, on modern hardware.
+apps that ran through WIPI, SKVM, and Raptor-family runtimes in the 2000s. Point
+it at a program you're allowed to use, and ARAM runs it again on modern hardware.
 
-> 한국 피처폰(WIPI) 시절의 게임과 앱을 지금의 PC·폰·브라우저에서 다시 실행하는 에뮬레이터입니다.
+> 한국 피처폰의 WIPI·SKVM·Raptor 게임과 앱을 지금의 PC·폰·브라우저에서 다시 실행하는 오픈소스 에뮬레이터입니다.
 
 It runs on **Windows, Linux, macOS, and Android**, and there's a full
 **in-browser version**, no install required.
@@ -48,20 +48,35 @@ It runs on **Windows, Linux, macOS, and Android**, and there's a full
 
 Prefer the bleeding edge? Every change to the project is also published as a
 [**Nightly**](https://github.com/mirusu400/aram-emu/releases/tag/nightly) build.
-You can pick **Stable** or **Nightly** right on the [download page](https://aram.mir.sh/en/#download).
+You can pick **Stable** or **Nightly** on the dedicated [download page](https://aram.mir.sh/en/download/).
 
 ## What can it run?
 
 ARAM has two ways to bring old software back:
 
 ### 📱 Run apps and games
-Load a WIPI app or game and ARAM runs it directly, providing the phone services
-it expects, display, sound, input, storage, and timing. **This works today.**
+Load a KTF WIPI, SKT SKVM, or LGT Raptor-family app or game and ARAM runs it
+directly, providing the phone services it expects: display, sound, input,
+storage, and timing. Exact results vary by title, carrier, device profile, and
+input hash; use the [milestone-based compatibility record](https://aram.mir.sh/en/compatibility/)
+instead of treating runtime support as a blanket playability claim.
 
 ### 🔌 Boot a whole phone *(experimental)*
-Point ARAM at a real phone's firmware and it boots the entire device, one
-supported model at a time (currently the Samsung SCH-W830 and SCH-W860). This is
-an ongoing research track.
+Point ARAM at an authorized Samsung phone firmware set and it runs the original
+boot chain through the product's experimental system mode. In **v0.2.0** the
+verified boundary is:
+
+| Exact firmware set | Verified milestone |
+|---|---|
+| SCH-W830 DL21 / DA18 | Fresh-media provisioning, power-cycle cold boot, home screen, verified keys, and a built-in app |
+| SCH-W770 DA05 | Fresh-media provisioning, power-cycle cold boot, physical HOLD input, and the SKT home screen |
+| SCH-W860 DA06 | Fresh-media provisioning, power-cycle cold boot, and the home screen; its keypad remains unverified |
+| SCH-W210 / W240 / W270 / W290 / W300 / W330 / W390 / W420 / W460 | Exact QCSBL-to-OEMSBL handoff only, not a display or full-boot claim |
+
+See the [v0.2.0 release article](https://aram.mir.sh/en/releases/v0-2-0/) and
+[system-firmware evidence](https://github.com/mirusu400/aram-core/blob/e624402/docs/system-firmware-progress.md)
+for the dated scope. Camera, cellular service, Bluetooth, and arbitrary built-in
+or downloaded app compatibility remain outside these device claims.
 
 ## Features
 
@@ -74,11 +89,12 @@ an ongoing research track.
 
 ## How honest is it?
 
-Very. ARAM is under active development, and it tracks its progress in clear
-steps: *recognized → loads → executes → first frame → playable → complete*. A few
-reference titles already reach their first frame; broad game support and full
-phone boot are still on the way. Every result is reported honestly, so you
-always know exactly how far a title gets.
+ARAM is under active development, and it tracks application progress in clear
+steps: *recognized → loads → executes → first frame → playable → complete*.
+Release notes describe what changed; they do not by themselves prove that every
+title reaches the same milestone. Public compatibility claims include an exact
+ARAM version, verification date, runtime or device profile, and privacy-safe
+input identity so you can tell exactly what was tested.
 
 ## Bring your own files
 
