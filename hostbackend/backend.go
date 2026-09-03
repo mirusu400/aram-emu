@@ -46,9 +46,10 @@ type Backend struct {
 	// whichever backend it was given. Remembering them here lets a switch
 	// re-apply the same choices to the adapter that becomes active, instead
 	// of dropping them silently at the boundary.
-	audio *frontend.AudioSettings
-	font  *frontend.FontSettings
-	cpu   *frontend.CPUSettings
+	audio   *frontend.AudioSettings
+	font    *frontend.FontSettings
+	cpu     *frontend.CPUSettings
+	display *frontend.DisplaySettings
 }
 
 func NewBackend(options Options) *Backend {
@@ -104,6 +105,11 @@ func (b *Backend) applyRememberedSettings() {
 	if b.cpu != nil {
 		if target, ok := b.active.(frontend.CPUBackendSelector); ok {
 			_ = target.ConfigureCPU(*b.cpu)
+		}
+	}
+	if b.display != nil {
+		if target, ok := b.active.(frontend.DisplayConfigurator); ok {
+			_ = target.ConfigureDisplay(*b.display)
 		}
 	}
 }
@@ -224,6 +230,17 @@ func (b *Backend) ConfigureCPU(settings frontend.CPUSettings) error {
 func (b *Backend) AvailableCPUBackends() []string {
 	if target, ok := b.active.(frontend.CPUBackendSelector); ok {
 		return target.AvailableCPUBackends()
+	}
+	return nil
+}
+
+// ConfigureDisplay records the experimental widescreen geometry and forwards it
+// to the active adapter, remembering it across an adapter switch like the other
+// Configure* settings above.
+func (b *Backend) ConfigureDisplay(settings frontend.DisplaySettings) error {
+	b.display = &settings
+	if target, ok := b.active.(frontend.DisplayConfigurator); ok {
+		return target.ConfigureDisplay(settings)
 	}
 	return nil
 }
