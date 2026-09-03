@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://aram.mir.sh"><b>🌐 Website</b></a> ·
-  <a href="https://aram.mir.sh/#play"><b>▶ Play in your browser</b></a> ·
+  <a href="https://aram.mir.sh/en/"><b>🌐 Website</b></a> ·
+  <a href="https://aram.mir.sh/en/#play"><b>▶ Play in your browser</b></a> ·
   <a href="https://github.com/mirusu400/aram-emu/releases"><b>⬇ Download</b></a>
 </p>
 
@@ -34,7 +34,7 @@ It runs on **Windows, Linux, macOS, and Android**, and there's a full
 
 ## Try it now
 
-- **▶ Play in your browser:** open **[aram.mir.sh](https://aram.mir.sh/#play)**,
+- **▶ Play in your browser:** open **[aram.mir.sh](https://aram.mir.sh/en/#play)**,
   press *Launch ARAM*, then `File ▸ Open` a file you own. Everything runs locally
   in your browser; nothing is uploaded.
 - **⬇ Download the app:** grab the latest build for your system.
@@ -48,7 +48,7 @@ It runs on **Windows, Linux, macOS, and Android**, and there's a full
 
 Prefer the bleeding edge? Every change to the project is also published as a
 [**Nightly**](https://github.com/mirusu400/aram-emu/releases/tag/nightly) build.
-You can pick **Stable** or **Nightly** right on the [download page](https://aram.mir.sh/#download).
+You can pick **Stable** or **Nightly** right on the [download page](https://aram.mir.sh/en/#download).
 
 ## What can it run?
 
