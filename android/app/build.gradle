@@ -57,6 +57,24 @@ android {
         }
     }
 
+    flavorDimensions "dist"
+
+    productFlavors {
+        // Sideloaded builds published on GitHub. They keep the in-app
+        // self-updater: REQUEST_INSTALL_PACKAGES and UpdateProvider live in the
+        // github source set, and installPackage opens the system installer.
+        github {
+            dimension "dist"
+        }
+        // Google Play build. No self-updater - Play delivers updates - so the
+        // package-install permission and the provider are absent and
+        // installPackage refuses. The bound aar is built with SelfUpdateDisabled
+        // so the frontend hides its update UI as well.
+        play {
+            dimension "dist"
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -101,6 +119,14 @@ tasks.named("preBuild").configure {
     dependsOn generateAramIcons
 }
 
+// The Play flavor binds an aar built with SelfUpdateDisabled, which CI writes
+// to libs/aram-play.aar. A local build without that file falls back to the
+// ordinary aar so the Play variant still assembles; only the native install
+// path is stripped there, which is what Play policy requires.
+def playAar = file("libs/aram-play.aar")
+def playAarFile = playAar.exists() ? playAar : file("libs/aram.aar")
+
 dependencies {
-    implementation files("libs/aram.aar")
+    githubImplementation files("libs/aram.aar")
+    playImplementation files(playAarFile)
 }

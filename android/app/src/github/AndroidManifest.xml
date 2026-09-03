@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Sideload (GitHub) flavor only. Lets the system package installer accept
+         the APKs the app's self-updater downloads; the user still confirms
+         every install there. The Google Play flavor omits this permission and
+         the provider below, because Google Play delivers updates. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <application>
+
+        <!-- Serves downloaded product packages to the package installer via
+             per-intent read grants only. -->
+        <provider
+            android:name=".UpdateProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+    </application>
+
+</manifest>

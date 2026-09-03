@@ -395,6 +395,9 @@ jobs:
             echo "aram-frontend=${{ needs.resolve-components.outputs.frontend_sha }}"
             echo "aram-authd=${{ needs.resolve-components.outputs.authd_sha }}"
           } > android/app/src/main/assets/BUILD-INFO.txt
+          # Reused by the Google Play AAB step, which rebinds a play-flavor aar
+          # with the same version but with the self-updater switched off.
+          echo "ARAM_BUILD_VERSION=${build_version}" >> "${GITHUB_ENV}"
 
       - name: Build and lint Android APK
         working-directory: aram-emu
@@ -403,16 +406,17 @@ jobs:
           ARAM_VERSION_CODE: ${{ github.run_number }}
           ARAM_VERSION_NAME: ${{ github.sha }}
         run: |
-          # Lint always runs against the debug variant (the known-good gate);
-          # the shipped variant depends on the channel. A release event ships
+          # The sideload channels ship the github flavor; the play flavor is a
+          # separate store artifact built below. Lint always runs against the
+          # github debug variant (the known-good gate). A release event ships
           # the stable channel ("ARAM", base package, stable-signed); every
           # other event ships the rolling nightly ("ARAM Nightly", .nightly
           # package, nightly-signed).
           if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
             gradle --no-daemon --stacktrace -p android \
-              :app:lintDebug :app:assembleRelease
+              :app:lintGithubDebug :app:assembleGithubRelease
             {
-              echo "ARAM_APK=android/app/build/outputs/apk/release/app-release.apk"
+              echo "ARAM_APK=android/app/build/outputs/apk/github/release/app-github-release.apk"
               echo "ARAM_APP_PKG=io.github.mirusu400.aram"
               echo "ARAM_APP_LABEL=ARAM"
               echo "ARAM_CERT_CN=CN=ARAM, O=ARAM, C=KR"
@@ -420,9 +424,9 @@ jobs:
             } >> "${GITHUB_ENV}"
           else
             gradle --no-daemon --stacktrace -p android \
-              :app:lintDebug :app:assembleDebug
+              :app:lintGithubDebug :app:assembleGithubDebug
             {
-              echo "ARAM_APK=android/app/build/outputs/apk/debug/app-debug.apk"
+              echo "ARAM_APK=android/app/build/outputs/apk/github/debug/app-github-debug.apk"
               echo "ARAM_APP_PKG=io.github.mirusu400.aram.nightly"
               echo "ARAM_APP_LABEL=ARAM Nightly"
               echo "ARAM_CERT_CN=CN=ARAM Nightly, O=ARAM, C=KR"
@@ -489,6 +493,47 @@ jobs:
         with:
           name: aram-android-universal
           path: aram-emu/dist/aram-android-universal.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Build Google Play AAB
+        if: github.event_name == 'release'
+        working-directory: aram-emu
+        shell: bash
+        env:
+          ARAM_VERSION_CODE: ${{ github.run_number }}
+          ARAM_VERSION_NAME: ${{ github.sha }}
+        run: |
+          # The Play build strips the in-app self-updater. The play flavor drops
+          # REQUEST_INSTALL_PACKAGES and the package-install provider, and the
+          # bound aar is rebuilt with SelfUpdateDisabled so the frontend hides
+          # its update check, badge, and download UI. Google Play delivers
+          # updates instead. bundlePlayRelease emits an .aab for the store.
+          ebiten_version="$(go list -m -f '{{.Version}}' \
+            github.com/hajimehoshi/ebiten/v2)"
+          go install \
+            "github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@${ebiten_version}"
+          ebitenmobile bind \
+            -target android/arm64,android/amd64 \
+            -androidapi 23 \
+            -trimpath \
+            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${ARAM_BUILD_VERSION} -X=github.com/mirusu400/aram-frontend/frontend.SelfUpdateDisabled=1" \
+            -javapkg io.github.mirusu400.aram \
+            -o android/app/libs/aram-play.aar \
+            ./mobile
+          gradle --no-daemon --stacktrace -p android \
+            :app:lintPlayDebug :app:bundlePlayRelease
+          aab="android/app/build/outputs/bundle/playRelease/app-play-release.aab"
+          test -f "${aab}"
+          mkdir -p dist
+          cp "${aab}" dist/aram-google-play.aab
+
+      - name: Upload Google Play AAB
+        if: github.event_name == 'release'
+        uses: actions/upload-artifact@v7
+        with:
+          name: aram-google-play
+          path: aram-emu/dist/aram-google-play.aab
           if-no-files-found: error
           retention-days: 14
 
