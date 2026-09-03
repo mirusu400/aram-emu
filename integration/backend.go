@@ -62,6 +62,10 @@ type Backend struct {
 	cheatCatalogSource string
 	cheatIdentity      string
 	cheatApplyWarning  string
+	// Experimental guest framebuffer override (widescreen). Zero keeps the
+	// device-native geometry. Applied when the next machine is created.
+	displayWidth  int
+	displayHeight int
 }
 
 func NewBackend(factory aramcore.Factory) *Backend {
@@ -75,11 +79,38 @@ func NewBackend(factory aramcore.Factory) *Backend {
 		defaultFactory.RaptorNet = AuthdRaptorNet(authd.Grant{})
 		factory = defaultFactory
 	}
-	return &Backend{factory: factory, cheatStore: newCheatCatalogStore()}
+	backend := &Backend{factory: factory, cheatStore: newCheatCatalogStore()}
+	// Experimental widescreen: a dev-only env default for the guest framebuffer
+	// geometry. The frontend's Experiments panel overrides this at runtime via
+	// ConfigureDisplay; both flow through factoryForCreate.
+	if w, h := experimentalFramebufferSize(); w > 0 && h > 0 {
+		backend.displayWidth, backend.displayHeight = w, h
+	}
+	return backend
 }
 
 func (backend *Backend) BackendName() string {
 	return "aram-core"
+}
+
+// experimentalFramebufferSize reads ARAM_FB_WIDTH/ARAM_FB_HEIGHT for the
+// widescreen probe. Zero disables the override.
+func experimentalFramebufferSize() (int, int) {
+	parse := func(name string) int {
+		value := strings.TrimSpace(os.Getenv(name))
+		if value == "" {
+			return 0
+		}
+		n := 0
+		for _, r := range value {
+			if r < '0' || r > '9' {
+				return 0
+			}
+			n = n*10 + int(r-'0')
+		}
+		return n
+	}
+	return parse("ARAM_FB_WIDTH"), parse("ARAM_FB_HEIGHT")
 }
 
 func (backend *Backend) Open(
@@ -649,6 +680,7 @@ func (backend *Backend) factoryForCreate() aramcore.Factory {
 	fontChoice := backend.fontChoice
 	cpuChoice := backend.cpuChoice
 	audioMixMode := backend.audio.MixMode
+	displayWidth := backend.displayWidth
 	backend.mu.RUnlock()
 	if concrete, ok := factory.(application.Factory); ok {
 		concrete.FallbackFont = fontChoice
@@ -661,9 +693,36 @@ func (backend *Backend) factoryForCreate() aramcore.Factory {
 				concrete.NewCPU = newCPU
 			}
 		}
+		// Experimental widescreen: widen the guest framebuffer so the runtime's
+		// screen-size query APIs report the larger canvas, keeping each loader's
+		// native height. A camera-scrolled title fills the extra area; others
+		// letterbox or leave margins. Width-only so it survives loaders (KTF) that
+		// resize the frame from a package descriptor.
+		if displayWidth > 0 {
+			concrete.GuestWidthOverride = displayWidth
+		}
 		return concrete
 	}
 	return factory
+}
+
+// ConfigureDisplay overrides the guest framebuffer geometry for titles opened
+// afterward. A zero width and height restore the device-native size. Only a
+// title that lays its scene out from the runtime-reported screen size (as
+// camera-scrolled titles do) fills the extra area; others letterbox or leave
+// margins. The size takes effect the next time a title is opened.
+func (backend *Backend) ConfigureDisplay(settings frontend.DisplaySettings) error {
+	w, h := settings.Width, settings.Height
+	if w < 0 || h < 0 || w > 4096 || h > 4096 {
+		return fmt.Errorf("invalid display geometry %dx%d", w, h)
+	}
+	if (w == 0) != (h == 0) {
+		return fmt.Errorf("display geometry needs both width and height, or neither")
+	}
+	backend.mu.Lock()
+	backend.displayWidth, backend.displayHeight = w, h
+	backend.mu.Unlock()
+	return nil
 }
 
 func (backend *Backend) DrainAudio() frontend.AudioChunk {
