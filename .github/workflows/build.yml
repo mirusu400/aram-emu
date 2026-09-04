@@ -464,6 +464,12 @@ jobs:
             sort -V | tail -n 1)"
           test -x "${aapt}"
           "${aapt}" dump badging "${apk}" > android/app/build/apk-badging.txt
+          echo "::group::apk-badging.txt (icon/application lines, for diagnosing icon check failures)"
+          grep -iE 'icon|application' android/app/build/apk-badging.txt || true
+          echo "::endgroup::"
+          echo "::group::APK entries (mipmap/drawable/icon)"
+          unzip -Z1 "${apk}" | grep -iE 'mipmap|drawable|icon' || true
+          echo "::endgroup::"
           grep -F "package: name='${ARAM_APP_PKG}'" \
             android/app/build/apk-badging.txt
           grep -F "application-label:'${ARAM_APP_LABEL}'" \
