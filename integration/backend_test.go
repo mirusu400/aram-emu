@@ -333,6 +333,10 @@ func (unavailablePicker) OpenFirmwareDirectory(string) (string, error) {
 	return "", frontend.ErrPickerUnavailable
 }
 
+func (unavailablePicker) OpenGameDirectory(string) (string, error) {
+	return "", frontend.ErrPickerUnavailable
+}
+
 func (unavailablePicker) OpenSaveBackupFile() (string, error) {
 	return "", frontend.ErrPickerUnavailable
 }
@@ -387,6 +391,10 @@ func (pathPicker) OpenFontFile() (string, error) {
 }
 
 func (pathPicker) OpenFirmwareDirectory(string) (string, error) {
+	return "", frontend.ErrPickerUnavailable
+}
+
+func (pathPicker) OpenGameDirectory(string) (string, error) {
 	return "", frontend.ErrPickerUnavailable
 }
 

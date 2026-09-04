@@ -20,6 +20,14 @@ type recordingAdapter struct {
 	cpus     []frontend.CPUSettings
 	frames   int
 	closeErr error
+	icons    []string
+}
+
+// Icon records the requested path and returns bytes tagged with this adapter's
+// name so a test can prove which half answered.
+func (a *recordingAdapter) Icon(path string) ([]byte, error) {
+	a.icons = append(a.icons, path)
+	return []byte("icon:" + a.name), nil
 }
 
 func (a *recordingAdapter) Open(
@@ -253,5 +261,31 @@ func TestSaveTransferRoutesToActiveAdapter(t *testing.T) {
 	}
 	if err := backend.ImportSaveData([]byte("x")); err == nil {
 		t.Fatal("the firmware adapter claimed save restore support")
+	}
+}
+
+func TestIconForwardsToApplicationAdapter(t *testing.T) {
+	application := &recordingAdapter{name: "app"}
+	system := &recordingAdapter{name: "system"}
+	backend := newBackend(application, system)
+
+	// Switch the active adapter to system; an icon is path-keyed metadata and
+	// must still be answered by the application adapter.
+	if _, err := backend.Open(context.Background(), frontend.OpenRequest{Firmware: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := backend.Icon("game.jar")
+	if err != nil {
+		t.Fatalf("Icon error: %v", err)
+	}
+	if string(data) != "icon:app" {
+		t.Fatalf("Icon answered by %q, want the application adapter", data)
+	}
+	if len(application.icons) != 1 || application.icons[0] != "game.jar" {
+		t.Fatalf("application icon requests = %v", application.icons)
+	}
+	if len(system.icons) != 0 {
+		t.Fatal("icon request reached the system adapter")
 	}
 }

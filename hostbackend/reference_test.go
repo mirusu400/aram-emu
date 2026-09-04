@@ -20,6 +20,10 @@ func (p firmwarePicker) OpenFontFile() (string, error) { return "", frontend.Err
 
 func (p firmwarePicker) OpenFirmwareDirectory(string) (string, error) { return p.directory, nil }
 
+func (p firmwarePicker) OpenGameDirectory(string) (string, error) {
+	return "", frontend.ErrPickerCanceled
+}
+
 func (p firmwarePicker) OpenSaveBackupFile() (string, error) { return "", frontend.ErrPickerCanceled }
 
 func (p firmwarePicker) ChooseRecent([]string) (string, error) {

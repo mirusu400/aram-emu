@@ -186,6 +186,16 @@ func (b *Backend) Haptics() frontend.HapticsState {
 	return frontend.HapticsState{}
 }
 
+// Icon forwards to the application adapter rather than the active one: a
+// launcher icon is path-keyed metadata requested before any title or firmware
+// is open, so it must not depend on which machine is currently active.
+func (b *Backend) Icon(path string) ([]byte, error) {
+	if target, ok := b.application.(frontend.IconBackend); ok {
+		return target.Icon(path)
+	}
+	return nil, errors.New("icon unavailable on this backend")
+}
+
 func (b *Backend) RunFrame(ctx context.Context) error {
 	if target, ok := b.active.(frontend.FrameBackend); ok {
 		return target.RunFrame(ctx)
@@ -314,3 +324,4 @@ func DefaultSystemOptions() systemintegration.Options {
 var _ frontend.Backend = (*Backend)(nil)
 var _ frontend.FirmwareBackend = (*Backend)(nil)
 var _ frontend.SaveTransferBackend = (*Backend)(nil)
+var _ frontend.IconBackend = (*Backend)(nil)
