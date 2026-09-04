@@ -496,6 +496,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Decode Play upload keystore
+        if: github.event_name == 'release'
+        working-directory: aram-emu
+        shell: bash
+        run: |
+          echo "${{ secrets.ARAM_PLAY_KEYSTORE_BASE64 }}" | base64 -d > android/play.keystore
+          test -s android/play.keystore
+
       - name: Build Google Play AAB
         if: github.event_name == 'release'
         working-directory: aram-emu
@@ -503,6 +511,8 @@ jobs:
         env:
           ARAM_VERSION_CODE: ${{ github.run_number }}
           ARAM_VERSION_NAME: ${{ github.sha }}
+          ARAM_PLAY_KEYSTORE_PASSWORD: ${{ secrets.ARAM_PLAY_KEYSTORE_PASSWORD }}
+          ARAM_PLAY_KEY_PASSWORD: ${{ secrets.ARAM_PLAY_KEY_PASSWORD }}
         run: |
           # The Play build strips the in-app self-updater. The play flavor drops
           # REQUEST_INSTALL_PACKAGES and the package-install provider, and the

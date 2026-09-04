@@ -58,3 +58,10 @@ Thumbs.db
 *.wav
 *.mid
 *.midi
+.gstack/
+
+# Play Store upload keystore - never commit the key or its password.
+/android/play.keystore
+/android/play.keystore.b64
+/android/play-signing.local.ps1
+/android/*.local.ps1

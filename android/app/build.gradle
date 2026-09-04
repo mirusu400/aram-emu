@@ -29,6 +29,15 @@ android {
             keyAlias "aram-stable"
             keyPassword "aram-stable"
         }
+        // Google Play upload key. Never hardcode this password - the keystore
+        // itself and its password are both gitignored (../play.keystore,
+        // play-signing.local.ps1). CI supplies them via secrets/env vars.
+        play {
+            storeFile file("../play.keystore")
+            storePassword System.getenv("ARAM_PLAY_KEYSTORE_PASSWORD") ?: ""
+            keyAlias "aram-play"
+            keyPassword System.getenv("ARAM_PLAY_KEY_PASSWORD") ?: ""
+        }
     }
 
     defaultConfig {
@@ -52,7 +61,9 @@ android {
         }
         release {
             minifyEnabled false
-            signingConfig signingConfigs.stable
+            // No signingConfig here - each flavor below sets its own release
+            // signing key. (buildType-level signingConfig would win over the
+            // flavor's for every flavor, which is not what we want here.)
             resValue "string", "app_name", "ARAM"
         }
     }
@@ -65,6 +76,7 @@ android {
         // github source set, and installPackage opens the system installer.
         github {
             dimension "dist"
+            signingConfig signingConfigs.stable
         }
         // Google Play build. No self-updater - Play delivers updates - so the
         // package-install permission and the provider are absent and
@@ -72,6 +84,7 @@ android {
         // so the frontend hides its update UI as well.
         play {
             dimension "dist"
+            signingConfig signingConfigs.play
         }
     }
 
