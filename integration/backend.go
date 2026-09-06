@@ -680,11 +680,13 @@ func (backend *Backend) factoryForCreate() aramcore.Factory {
 	fontChoice := backend.fontChoice
 	cpuChoice := backend.cpuChoice
 	audioMixMode := backend.audio.MixMode
+	outputSampleRate := backend.audio.OutputSampleRate
 	displayWidth := backend.displayWidth
 	backend.mu.RUnlock()
 	if concrete, ok := factory.(application.Factory); ok {
 		concrete.FallbackFont = fontChoice
 		concrete.AudioMixMode = audioMixMode
+		concrete.OutputSampleRate = outputSampleRate
 		// A frontend CPU selection overrides the factory default (which already
 		// reflects the ARAM_CPU environment); an unknown name is ignored so the
 		// default core still runs.
