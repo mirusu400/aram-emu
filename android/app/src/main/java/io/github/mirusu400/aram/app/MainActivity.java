@@ -703,19 +703,28 @@ public final class MainActivity extends Activity
         });
     }
 
+    /**
+     * Copies a picked document into app-private storage. Each import gets its
+     * own folder named by a fresh UUID and keeps the document's real file name
+     * inside it, so the copy's base name is still the name the user chose.
+     * Prefixing the name with the UUID instead would put that UUID in front of
+     * every place a base name stands in for the title - the session label, save
+     * backup file names, issue report titles - once anything reopens the title
+     * by path alone.
+     */
     private ImportedDocument copyIntoPrivateStorage(Uri uri) throws IOException {
         ContentResolver resolver = getContentResolver();
         String displayName = queryDisplayName(resolver, uri);
-        File imports = new File(getFilesDir(), "imports");
+        File imports = new File(
+                new File(getFilesDir(), "imports"),
+                UUID.randomUUID().toString()
+        );
         if (!imports.isDirectory() && !imports.mkdirs()) {
             throw new IOException("cannot create the import directory");
         }
 
         String safeName = safeFileName(displayName);
-        File destination = new File(
-                imports,
-                UUID.randomUUID() + "-" + safeName
-        );
+        File destination = new File(imports, safeName);
         File temporary = new File(destination.getAbsolutePath() + ".part");
 
         long total = 0;
