@@ -5,6 +5,20 @@ plugins {
 def aramVersionCode = (System.getenv("ARAM_VERSION_CODE") ?: "1").toInteger()
 def aramVersionName = System.getenv("ARAM_VERSION_NAME") ?: "dev"
 def aramAbis = (System.getenv("ARAM_ANDROID_ABIS") ?: "arm64-v8a,x86_64").split(",")
+// Public Google-provided demo identifiers. They are safe to ship in source and
+// are used by every Play debug build. Production values are supplied only to
+// the Play release task through CI environment variables.
+def adMobTestApplicationId = "ca-app-pub-3940256099942544~3347511713"
+def adMobTestBannerAdUnitId = "ca-app-pub-3940256099942544/9214589741"
+def configuredAdMobApplicationId = System.getenv("ARAM_ADMOB_APP_ID") ?: adMobTestApplicationId
+def configuredAdMobBannerAdUnitId =
+    System.getenv("ARAM_ADMOB_BANNER_AD_UNIT_ID") ?: adMobTestBannerAdUnitId
+if (!(configuredAdMobApplicationId ==~ '^ca-app-pub-\\d+~\\d+$')) {
+    throw new GradleException("ARAM_ADMOB_APP_ID is not a valid AdMob application ID")
+}
+if (!(configuredAdMobBannerAdUnitId ==~ '^ca-app-pub-\\d+/\\d+$')) {
+    throw new GradleException("ARAM_ADMOB_BANNER_AD_UNIT_ID is not a valid AdMob banner ad unit ID")
+}
 def aramEmuRoot = rootProject.projectDir.parentFile
 def configuredAramIcon = System.getenv("ARAM_ICON_SOURCE")
 def aramIconSource = configuredAramIcon
@@ -52,12 +66,20 @@ android {
         }
     }
 
+    buildFeatures {
+        buildConfig true
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix ".nightly"
             versionNameSuffix "-nightly"
             signingConfig signingConfigs.nightly
             resValue "string", "app_name", "ARAM Nightly"
+            // Keep every debuggable Play build on Google's demo inventory,
+            // even when a developer has production CI values in their shell.
+            manifestPlaceholders = [admobApplicationId: adMobTestApplicationId]
+            buildConfigField "String", "ADMOB_BANNER_AD_UNIT_ID", "\"${adMobTestBannerAdUnitId}\""
         }
         release {
             minifyEnabled false
@@ -65,6 +87,8 @@ android {
             // signing key. (buildType-level signingConfig would win over the
             // flavor's for every flavor, which is not what we want here.)
             resValue "string", "app_name", "ARAM"
+            manifestPlaceholders = [admobApplicationId: configuredAdMobApplicationId]
+            buildConfigField "String", "ADMOB_BANNER_AD_UNIT_ID", "\"${configuredAdMobBannerAdUnitId}\""
         }
     }
 
@@ -142,4 +166,8 @@ def playAarFile = playAar.exists() ? playAar : file("libs/aram.aar")
 dependencies {
     githubImplementation files("libs/aram.aar")
     playImplementation files(playAarFile)
+    // Ads and consent code are deliberately Play-only. GitHub/sideload builds
+    // contain neither the SDK nor this account's production identifiers.
+    playImplementation "com.google.android.gms:play-services-ads:25.4.0"
+    playImplementation "com.google.android.ump:user-messaging-platform:4.0.0"
 }

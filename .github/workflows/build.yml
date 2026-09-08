@@ -519,12 +519,16 @@ jobs:
           ARAM_VERSION_NAME: ${{ github.sha }}
           ARAM_PLAY_KEYSTORE_PASSWORD: ${{ secrets.ARAM_PLAY_KEYSTORE_PASSWORD }}
           ARAM_PLAY_KEY_PASSWORD: ${{ secrets.ARAM_PLAY_KEY_PASSWORD }}
+          ARAM_ADMOB_APP_ID: ${{ secrets.ARAM_ADMOB_APP_ID }}
+          ARAM_ADMOB_BANNER_AD_UNIT_ID: ${{ secrets.ARAM_ADMOB_BANNER_AD_UNIT_ID }}
         run: |
           # The Play build strips the in-app self-updater. The play flavor drops
           # REQUEST_INSTALL_PACKAGES and the package-install provider, and the
           # bound aar is rebuilt with SelfUpdateDisabled so the frontend hides
           # its update check, badge, and download UI. Google Play delivers
           # updates instead. bundlePlayRelease emits an .aab for the store.
+          test -n "${ARAM_ADMOB_APP_ID}"
+          test -n "${ARAM_ADMOB_BANNER_AD_UNIT_ID}"
           ebiten_version="$(go list -m -f '{{.Version}}' \
             github.com/hajimehoshi/ebiten/v2)"
           go install \

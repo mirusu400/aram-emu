@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- The debug variant resolves this to Google's public demo app ID;
+             Play release resolves it from ARAM_ADMOB_APP_ID in CI. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="${admobApplicationId}" />
+    </application>
+
+</manifest>

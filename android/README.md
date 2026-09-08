@@ -62,6 +62,25 @@ directory. ARAM never edits the provider-owned source. Android may grant a
 persistable URI permission, but emulation uses only the private copy so the
 backend always receives a seekable filesystem path.
 
+## Play Store advertising
+
+The public source tree and GitHub/sideload APKs contain no AdMob SDK, no AdMob
+app ID, and no production ad unit ID. The Play flavor is the only flavor that
+contains banner advertising:
+
+- `playDebug` always uses Google's public demo app and banner IDs, so it is
+  safe for development and policy-safe device testing.
+- `playRelease` reads the actual values from CI only. Add these GitHub Actions
+  secrets before publishing a release: `ARAM_ADMOB_APP_ID` and
+  `ARAM_ADMOB_BANNER_AD_UNIT_ID`. The release workflow fails before building
+  the AAB if either is absent.
+
+The Play host refreshes consent using Google's User Messaging Platform (UMP)
+on every launch, displays a configured consent form when required, and shows a
+Privacy options button whenever UMP requires a persistent entry point. In the
+AdMob console, create and publish the required Privacy & messaging messages
+for the Play app before release.
+
 Frontend settings and debug exports use the app-private `files/config`
 directory. The Activity initializes the Go runtime context and this storage
 root before Ebitengine creates the shared frontend shell.

@@ -23,6 +23,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.Toast;
 
 import android.app.ActivityOptions;
@@ -65,6 +66,7 @@ public final class MainActivity extends Activity
     private boolean pendingFirmware;
     private InputManager inputManager;
     private InputManager.InputDeviceListener controllerListener;
+    private AdMobController adMobController;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,7 +91,25 @@ public final class MainActivity extends Activity
         gameView = new EbitenView(this);
         gameView.setFocusable(true);
         gameView.setFocusableInTouchMode(true);
-        setContentView(gameView);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        FrameLayout gameContainer = new FrameLayout(this);
+        gameContainer.addView(gameView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        content.addView(gameContainer, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+        ));
+        LinearLayout adContainer = new LinearLayout(this);
+        adContainer.setOrientation(LinearLayout.VERTICAL);
+        content.addView(adContainer, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        setContentView(content);
         gameView.requestFocus();
         // The window's DecorView exists only after setContentView(), and the
         // API 30+ insets controller lives on that DecorView.
@@ -98,6 +118,8 @@ public final class MainActivity extends Activity
         setupControllerDetection();
 
         audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
+        adMobController = new AdMobController(this, adContainer);
+        adMobController.start();
         handleIncomingIntent(getIntent());
     }
 
@@ -471,6 +493,9 @@ public final class MainActivity extends Activity
     @Override
     protected void onResume() {
         super.onResume();
+        if (adMobController != null) {
+            adMobController.onResume();
+        }
         if (gameView != null) {
             gameView.resumeGame();
             gameView.requestFocus();
@@ -481,6 +506,9 @@ public final class MainActivity extends Activity
 
     @Override
     protected void onPause() {
+        if (adMobController != null) {
+            adMobController.onPause();
+        }
         Mobile.pause();
         Mobile.audioFocus(false);
         abandonAudioFocus();
@@ -492,6 +520,10 @@ public final class MainActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        if (adMobController != null) {
+            adMobController.destroy();
+            adMobController = null;
+        }
         if (inputManager != null && controllerListener != null) {
             inputManager.unregisterInputDeviceListener(controllerListener);
             controllerListener = null;
