@@ -324,7 +324,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: aram-emu/go.mod
+          # ebitenmobile's generated binding module resolves the current
+          # x/text release, whose toolchain floor is newer than the product's
+          # own Go directive.
+          go-version: 1.26.x
           cache-dependency-path: |
             aram-emu/go.sum
             aram-emu/go.work.sum
