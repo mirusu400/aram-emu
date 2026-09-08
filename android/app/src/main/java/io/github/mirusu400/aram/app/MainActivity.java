@@ -55,7 +55,12 @@ public final class MainActivity extends Activity
         implements Host, AudioManager.OnAudioFocusChangeListener {
     private static final int REQUEST_DOCUMENT = 1001;
     private static final long MAX_IMPORT_BYTES = 2L * 1024L * 1024L * 1024L;
-    private static final String STATE_PENDING_FIRMWARE = "pending_firmware";
+    private static final String STATE_PENDING_DOCUMENT_KIND = "pending_document_kind";
+    // Document kinds the shared frontend asks for. They match
+    // frontend.DocumentKind* on the Go side.
+    private static final String DOCUMENT_KIND_INPUT = "input";
+    private static final String DOCUMENT_KIND_FIRMWARE = "firmware";
+    private static final String DOCUMENT_KIND_SAVE_BACKUP = "save-backup";
 
     private final ExecutorService importExecutor = Executors.newSingleThreadExecutor();
 
@@ -63,7 +68,7 @@ public final class MainActivity extends Activity
     private AlertDialog textInputDialog;
     private AudioManager audioManager;
     private AudioFocusRequest audioFocusRequest;
-    private boolean pendingFirmware;
+    private String pendingDocumentKind = DOCUMENT_KIND_INPUT;
     private InputManager inputManager;
     private InputManager.InputDeviceListener controllerListener;
     private AdMobController adMobController;
@@ -75,10 +80,10 @@ public final class MainActivity extends Activity
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         if (savedInstanceState != null) {
-            pendingFirmware = savedInstanceState.getBoolean(
-                    STATE_PENDING_FIRMWARE,
-                    false
-            );
+            String kind = savedInstanceState.getString(STATE_PENDING_DOCUMENT_KIND);
+            if (kind != null && !kind.isEmpty()) {
+                pendingDocumentKind = kind;
+            }
         }
 
         // The Go runtime sees none of Android's locale configuration, so the
@@ -247,14 +252,21 @@ public final class MainActivity extends Activity
         handleIncomingIntent(intent);
     }
 
+    /**
+     * Presents the system document picker for one document kind. A save backup
+     * goes through the same picker as a title: it is an ordinary file the user
+     * keeps wherever they like, and SAF is the only way the app can read one
+     * back in.
+     */
     @Override
-    public void requestDocument(boolean firmware) {
+    public void requestDocument(String kind) {
+        String requested = normalizeDocumentKind(kind);
         runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) {
                 Mobile.documentSelectionCanceled();
                 return;
             }
-            pendingFirmware = firmware;
+            pendingDocumentKind = requested;
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("*/*");
@@ -267,6 +279,46 @@ public final class MainActivity extends Activity
                             | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
             );
             startActivityForResult(intent, REQUEST_DOCUMENT);
+        });
+    }
+
+    private static String normalizeDocumentKind(String kind) {
+        if (DOCUMENT_KIND_FIRMWARE.equals(kind)
+                || DOCUMENT_KIND_SAVE_BACKUP.equals(kind)) {
+            return kind;
+        }
+        return DOCUMENT_KIND_INPUT;
+    }
+
+    /**
+     * Offers one file below the app private storage to another app. Save
+     * backups are written into private storage, where no file manager can
+     * reach them, so the share sheet is how a backup leaves the handset and
+     * survives uninstalling ARAM.
+     */
+    @Override
+    public void shareFile(String path, String mimeType, String title) throws Exception {
+        File file = new File(path).getCanonicalFile();
+        if (!file.isFile()) {
+            throw new IOException("the file to share no longer exists");
+        }
+        Uri uri = ShareProvider.uriFor(this, file);
+        String type = mimeType == null || mimeType.isEmpty()
+                ? "application/octet-stream"
+                : mimeType;
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType(type);
+        send.putExtra(Intent.EXTRA_STREAM, uri);
+        send.putExtra(Intent.EXTRA_TITLE, title);
+        send.putExtra(Intent.EXTRA_SUBJECT, title);
+        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        Intent chooser = Intent.createChooser(send, title);
+        chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            startActivity(chooser);
         });
     }
 
@@ -435,12 +487,12 @@ public final class MainActivity extends Activity
                 // Some providers grant access only for the current Activity.
             }
         }
-        importDocument(uri, pendingFirmware);
+        importDocument(uri, pendingDocumentKind);
     }
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
-        outState.putBoolean(STATE_PENDING_FIRMWARE, pendingFirmware);
+        outState.putString(STATE_PENDING_DOCUMENT_KIND, pendingDocumentKind);
         super.onSaveInstanceState(outState);
     }
 
@@ -610,20 +662,23 @@ public final class MainActivity extends Activity
             }
         }
         if (uri != null) {
-            importDocument(uri, false);
+            importDocument(uri, DOCUMENT_KIND_INPUT);
         }
     }
 
-    private void importDocument(Uri uri, boolean firmware) {
+    private void importDocument(Uri uri, String kind) {
+        String requested = normalizeDocumentKind(kind);
         importExecutor.execute(() -> {
             try {
                 ImportedDocument document = copyIntoPrivateStorage(uri);
                 runOnUiThread(() -> {
-                    if (firmware) {
+                    if (DOCUMENT_KIND_FIRMWARE.equals(requested)) {
                         Mobile.openFirmware(
                                 document.file.getAbsolutePath(),
                                 document.displayName
                         );
+                    } else if (DOCUMENT_KIND_SAVE_BACKUP.equals(requested)) {
+                        Mobile.openSaveBackup(document.file.getAbsolutePath());
                     } else {
                         Mobile.openDocument(
                                 document.file.getAbsolutePath(),

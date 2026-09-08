@@ -71,7 +71,15 @@ func (backend *productBackend) InstallProductUpdate(
 // platform document picker and returns a private, backend-readable file path,
 // and it opens the platform package installer for a downloaded product update.
 type Host interface {
-	RequestDocument(firmware bool)
+	// RequestDocument presents the platform picker for one document kind -
+	// frontend.DocumentKindInput, DocumentKindFirmware or
+	// DocumentKindSaveBackup. The answer comes back through OpenDocument,
+	// OpenFirmware, OpenSaveBackup or DocumentSelectionCanceled.
+	RequestDocument(kind string)
+	// ShareFile hands one file below the app's private storage to another
+	// app. A save backup is written into private storage, so this is the only
+	// way it reaches a place that survives uninstalling the app.
+	ShareFile(path, mimeType, title string) error
 	// InstallPackage hands a verified product package below the configured
 	// update folder to the platform installer. An error reports that the
 	// installer could not be opened; the installation itself finishes
@@ -136,10 +144,12 @@ func SetHost(host Host) {
 	if host == nil {
 		frontend.SetNativePickerHost(nil)
 		frontend.SetNativeTextInputHost(nil)
+		frontend.SetNativeShareHost(nil)
 		return
 	}
 	frontend.SetNativePickerHost(host)
 	frontend.SetNativeTextInputHost(host)
+	frontend.SetNativeShareHost(host)
 }
 
 // SubmitTextInput reports the text the native editor accepted for the field
@@ -161,6 +171,12 @@ func OpenDocument(path, displayName string) {
 // OpenFirmware opens firmware imported by the native host.
 func OpenFirmware(path, displayName string) {
 	game.instance().OpenExternalDocument(path, displayName, true)
+}
+
+// OpenSaveBackup restores a save backup file the native host imported into
+// app-private storage.
+func OpenSaveBackup(path string) {
+	game.instance().ImportExternalSaveBackup(path)
 }
 
 // DocumentSelectionCanceled restores the frontend after a native picker is

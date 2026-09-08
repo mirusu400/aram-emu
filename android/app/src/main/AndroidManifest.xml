@@ -47,6 +47,16 @@
         <!-- On a dual-screen handset the keypad runs on the second physical
              panel as its own Activity in this process. Not exported; only
              MainActivity launches it, onto the other display. -->
+        <!-- Serves save backups and other artifacts written below app-private
+             storage to the app the user picks from the share sheet, via
+             per-intent read grants only. Without it a backup could be written
+             but never retrieved from a handset. -->
+        <provider
+            android:name=".ShareProvider"
+            android:authorities="${applicationId}.shares"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <activity
             android:name=".KeypadActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
