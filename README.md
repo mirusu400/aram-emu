@@ -143,3 +143,10 @@ in [`docs/`](docs/):
 - [Compatibility evidence policy](docs/compatibility.md)
 - [Repository ownership](docs/repositories.md)
 - [Android host & local APK build](android/README.md)
+
+## License
+
+Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
+Noncommercial use (personal projects, research, education, hobby builds) is
+free. Commercial use, including shipping a product or service built on this
+code, requires a separate license from the copyright holder.
