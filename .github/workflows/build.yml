@@ -214,6 +214,7 @@ jobs:
         env:
           CORE_SHA: ${{ needs.resolve-components.outputs.core_sha }}
           FRONTEND_SHA: ${{ needs.resolve-components.outputs.frontend_sha }}
+          ARAM_POSTHOG_API_KEY: ${{ secrets.ARAM_POSTHOG_API_KEY }}
         run: |
           mkdir -p build/icons build/package dist
           if [[ "${RUNNER_OS}" == "Windows" ]]; then
@@ -237,7 +238,7 @@ jobs:
             build_version="Development-${emu_short}-c${core_short}-f${frontend_short}"
           fi
           go build -trimpath \
-            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${build_version}" \
+            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${build_version} -X=github.com/mirusu400/aram-frontend/frontend.AnalyticsAPIKey=${ARAM_POSTHOG_API_KEY}" \
             -o "build/package/${{ matrix.executable }}" ./cmd/aram
           go build -trimpath -ldflags="-s -w" \
             -o "build/package/${{ matrix.probe }}" ./cmd/aram-probe
@@ -362,6 +363,7 @@ jobs:
         env:
           CORE_SHA: ${{ needs.resolve-components.outputs.core_sha }}
           FRONTEND_SHA: ${{ needs.resolve-components.outputs.frontend_sha }}
+          ARAM_POSTHOG_API_KEY: ${{ secrets.ARAM_POSTHOG_API_KEY }}
         run: |
           # The binder copies in the Java glue that calls the bound package's
           # own API, so a binder older than the Ebitengine this module builds
@@ -388,7 +390,7 @@ jobs:
             -target android/arm64,android/amd64 \
             -androidapi 23 \
             -trimpath \
-            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${build_version}" \
+            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${build_version} -X=github.com/mirusu400/aram-frontend/frontend.AnalyticsAPIKey=${ARAM_POSTHOG_API_KEY}" \
             -javapkg io.github.mirusu400.aram \
             -o android/app/libs/aram.aar \
             ./mobile
@@ -524,6 +526,7 @@ jobs:
           ARAM_PLAY_KEY_PASSWORD: ${{ secrets.ARAM_PLAY_KEY_PASSWORD }}
           ARAM_ADMOB_APP_ID: ${{ secrets.ARAM_ADMOB_APP_ID }}
           ARAM_ADMOB_BANNER_AD_UNIT_ID: ${{ secrets.ARAM_ADMOB_BANNER_AD_UNIT_ID }}
+          ARAM_POSTHOG_API_KEY: ${{ secrets.ARAM_POSTHOG_API_KEY }}
         run: |
           # The Play build strips the in-app self-updater. The play flavor drops
           # REQUEST_INSTALL_PACKAGES and the package-install provider, and the
@@ -540,7 +543,7 @@ jobs:
             -target android/arm64,android/amd64 \
             -androidapi 23 \
             -trimpath \
-            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${ARAM_BUILD_VERSION} -X=github.com/mirusu400/aram-frontend/frontend.SelfUpdateDisabled=1" \
+            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${ARAM_BUILD_VERSION} -X=github.com/mirusu400/aram-frontend/frontend.SelfUpdateDisabled=1 -X=github.com/mirusu400/aram-frontend/frontend.AnalyticsAPIKey=${ARAM_POSTHOG_API_KEY}" \
             -javapkg io.github.mirusu400.aram \
             -o android/app/libs/aram-play.aar \
             ./mobile
@@ -620,6 +623,7 @@ jobs:
         env:
           CORE_SHA: ${{ needs.resolve-components.outputs.core_sha }}
           FRONTEND_SHA: ${{ needs.resolve-components.outputs.frontend_sha }}
+          ARAM_POSTHOG_API_KEY: ${{ secrets.ARAM_POSTHOG_API_KEY }}
         run: |
           mkdir -p web dist
           emu_short="${GITHUB_SHA::7}"
@@ -635,7 +639,7 @@ jobs:
             build_version="Development-${emu_short}-c${core_short}-f${frontend_short}"
           fi
           GOOS=js GOARCH=wasm go build -trimpath \
-            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${build_version}" \
+            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${build_version} -X=github.com/mirusu400/aram-frontend/frontend.AnalyticsAPIKey=${ARAM_POSTHOG_API_KEY}" \
             -o web/aram.wasm ./cmd/aram-web
           test -s web/aram.wasm
           # wasm_exec.js ships with the Go toolchain: lib/wasm on Go >= 1.24,
@@ -758,6 +762,7 @@ jobs:
           CORE_SHA: ${{ needs.resolve-components.outputs.core_sha }}
           FRONTEND_SHA: ${{ needs.resolve-components.outputs.frontend_sha }}
           EBITEN_SHA: ${{ needs.resolve-components.outputs.ebiten_sha }}
+          ARAM_POSTHOG_API_KEY: ${{ secrets.ARAM_POSTHOG_API_KEY }}
         run: |
           mkdir -p build/package dist
           emu_short="${GITHUB_SHA::7}"
@@ -773,7 +778,7 @@ jobs:
             build_version="Development-${emu_short}-c${core_short}-f${frontend_short}"
           fi
           go build -trimpath \
-            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${build_version}" \
+            -ldflags="-s -w -X=github.com/mirusu400/aram-frontend/frontend.BuildVersion=${build_version} -X=github.com/mirusu400/aram-frontend/frontend.AnalyticsAPIKey=${ARAM_POSTHOG_API_KEY}" \
             -o build/package/aram ./cmd/aram
           go build -trimpath -ldflags="-s -w" \
             -o build/package/aram-probe ./cmd/aram-probe
