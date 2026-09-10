@@ -35,6 +35,7 @@ type probeResult struct {
 	LastExecution     *executionResult      `json:"last_execution,omitempty"`
 	WIPI              *wipiResult           `json:"wipi,omitempty"`
 	EADS              *eadsResult           `json:"eads,omitempty"`
+	Java              *javaResult           `json:"java,omitempty"`
 	Haptics           *hapticsResult        `json:"haptics,omitempty"`
 	TotalInstructions uint64                `json:"total_instructions,omitempty"`
 	FirstFrameSlice   uint64                `json:"first_frame_slice,omitempty"`
@@ -47,6 +48,17 @@ type probeResult struct {
 	Detail            string                `json:"detail,omitempty"`
 	ElapsedMS         int64                 `json:"elapsed_ms"`
 	hapticsActive     bool
+}
+
+type javaResult struct {
+	Runtime           string `json:"runtime"`
+	MainClass         string `json:"main_class"`
+	Started           bool   `json:"started"`
+	HasDisplay        bool   `json:"has_display"`
+	Instructions      uint64 `json:"instructions"`
+	PresentCount      uint64 `json:"present_count"`
+	FramebufferSHA256 string `json:"framebuffer_sha256,omitempty"`
+	FrameValid        bool   `json:"frame_valid"`
 }
 
 type imageResult struct {
@@ -105,7 +117,8 @@ func main() {
 }
 
 func run() int {
-	input := flag.String("input", "", "path to an authorized WIPI input")
+	input := flag.String("input", "", "path to an authorized application input")
+	profile := flag.String("profile", "", "optional backend-owned compatibility profile ID")
 	label := flag.String("label", "", "privacy-safe display name for the result")
 	slices := flag.Uint64("slices", 256, "maximum one-instruction execution slices")
 	postFrameSlices := flag.Uint64(
@@ -218,9 +231,7 @@ func run() int {
 			return 2
 		}
 	}
-	if err := backend.ConfigureAudio(frontend.AudioSettings{
-		MixMode: *audioMode == "mix",
-	}); err != nil {
+	if err := backend.ConfigureAudio(probeAudioSettings(*audioMode == "mix")); err != nil {
 		result.Detail = err.Error()
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		writeResult(result)
@@ -233,6 +244,7 @@ func run() int {
 		frontend.OpenRequest{
 			Path:        *input,
 			DisplayName: result.Name,
+			ProfileID:   *profile,
 		},
 		func(stage frontend.OpenStage) {
 			stages = append(stages, stage)
@@ -271,6 +283,9 @@ func run() int {
 			result.Status = "ok_frame"
 			result.Level = "boots"
 			result.FirstFrameSlice = slice + 1
+			break
+		}
+		if observeJavaFrame(&result, slice+1) {
 			break
 		}
 		if diagnostics.Execution != nil &&
@@ -404,6 +419,11 @@ func run() int {
 }
 
 func updatePostInteractionMilestone(result *probeResult) {
+	if result.Java != nil {
+		// Delivered host input and a framebuffer publication do not prove that
+		// Java guest input handlers changed the expected screen or game state.
+		return
+	}
 	if result.LastExecution != nil && result.LastExecution.Reason == "exited" {
 		result.Status = "ok_exit"
 		if result.InputEvents != 0 {
@@ -458,6 +478,8 @@ func runProbeSlice(
 	observeHaptics(result, backend.Haptics())
 	if diagnostics.EADS != nil {
 		result.TotalInstructions = diagnostics.EADS.TotalInstructions
+	} else if diagnostics.Java != nil {
+		result.TotalInstructions = diagnostics.Java.Instructions
 	} else if diagnostics.Execution != nil {
 		result.TotalInstructions += diagnostics.Execution.Instructions
 	}
@@ -505,6 +527,14 @@ func runProbeFrames(
 }
 
 func copyDiagnostics(result *probeResult, diagnostics integration.Diagnostics) {
+	if java := diagnostics.Java; java != nil {
+		result.Java = &javaResult{
+			Runtime: java.Runtime, MainClass: java.MainClass,
+			Started: java.Started, Instructions: java.Instructions, HasDisplay: java.HasDisplay,
+			PresentCount: java.PresentCount, FramebufferSHA256: java.FramebufferSHA256,
+			FrameValid: java.FrameValid,
+		}
+	}
 	if diagnostics.Image != nil {
 		result.Image = &imageResult{
 			Name:       diagnostics.Image.Name,
@@ -567,7 +597,7 @@ func classifyError(err error, format string) (string, string, frontend.FailureKi
 	if errors.As(err, &backendErr) {
 		switch backendErr.Kind {
 		case frontend.FailureUnsupportedProfile:
-			return "unsupported_format", "recognized", backendErr.Kind
+			return "unsupported_format", recognizedLevel(format), backendErr.Kind
 		case frontend.FailureMalformedInput:
 			return "malformed_input", recognizedLevel(format), backendErr.Kind
 		case frontend.FailureGuestFaulted:
