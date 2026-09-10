@@ -614,6 +614,9 @@ func (backend *Backend) QueueInput(event frontend.InputEvent) error {
 }
 
 func (backend *Backend) ConfigureAudio(settings frontend.AudioSettings) error {
+	if settings.OutputChannels != 0 && settings.OutputChannels != 1 && settings.OutputChannels != 2 {
+		return fmt.Errorf("invalid audio output channel count %d", settings.OutputChannels)
+	}
 	backend.mu.Lock()
 	backend.audio = settings
 	backend.mu.Unlock()
@@ -720,12 +723,14 @@ func (backend *Backend) factoryForCreate() aramcore.Factory {
 	cpuChoice := backend.cpuChoice
 	audioMixMode := backend.audio.MixMode
 	outputSampleRate := backend.audio.OutputSampleRate
+	outputChannels := backend.audio.OutputChannels
 	displayWidth := backend.displayWidth
 	backend.mu.RUnlock()
 	if concrete, ok := factory.(application.Factory); ok {
 		concrete.FallbackFont = fontChoice
 		concrete.AudioMixMode = audioMixMode
 		concrete.OutputSampleRate = outputSampleRate
+		concrete.OutputChannels = outputChannels
 		// A frontend CPU selection overrides the factory default (which already
 		// reflects the ARAM_CPU environment); an unknown name is ignored so the
 		// default core still runs.

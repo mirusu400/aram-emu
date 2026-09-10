@@ -116,10 +116,16 @@ func TestBackendOpensFirmwareDirectoryRunsFramesAndMapsControls(t *testing.T) {
 			if options.Backend == nil || options.BackendMode != "" {
 				t.Fatalf("default machine CPU options = %+v, want explicit fastest backend", options)
 			}
+			if options.OutputChannels != 2 {
+				t.Fatalf("machine output channels = %d, want stereo", options.OutputChannels)
+			}
 			selectedCPU = options.Backend
 			return machine, nil
 		},
 	})
+	if err := backend.ConfigureAudio(frontend.AudioSettings{OutputChannels: 2}); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		_ = backend.Close()
 		if selectedCPU != nil {

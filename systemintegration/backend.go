@@ -83,6 +83,7 @@ type Backend struct {
 	machine       systemMachine
 	firmwareFiles []*os.File
 	input         frontend.InputInfo
+	audio         frontend.AudioSettings
 	state         frontend.BackendState
 	contentID     string
 	mediaWarning  string
@@ -154,7 +155,13 @@ func (backend *Backend) OpenWithProgress(
 	if progress != nil {
 		progress(frontend.OpenStageLoading)
 	}
-	machineOptions := systemmachine.Options{BackendMode: backend.options.CPUBackendMode}
+	backend.mu.RLock()
+	outputChannels := backend.audio.OutputChannels
+	backend.mu.RUnlock()
+	machineOptions := systemmachine.Options{
+		BackendMode:    backend.options.CPUBackendMode,
+		OutputChannels: outputChannels,
+	}
 	if backend.options.CPUBackend != "" {
 		newCPU, resolveErr := application.ResolveCPUBackend(
 			concreteSystemCPUBackend(backend.options.CPUBackend),
@@ -218,6 +225,19 @@ func (backend *Backend) OpenWithProgress(
 		_ = file.Close()
 	}
 	return info, nil
+}
+
+// ConfigureAudio stores the guest mixer channel layout for the next firmware
+// machine. Host-only volume, mute, latency, and filters remain owned by the
+// reusable frontend audio output.
+func (backend *Backend) ConfigureAudio(settings frontend.AudioSettings) error {
+	if settings.OutputChannels != 0 && settings.OutputChannels != 1 && settings.OutputChannels != 2 {
+		return fmt.Errorf("invalid audio output channel count %d", settings.OutputChannels)
+	}
+	backend.mu.Lock()
+	backend.audio = settings
+	backend.mu.Unlock()
+	return nil
 }
 
 // ConfigureCPU stores a registered backend for the next firmware machine.
