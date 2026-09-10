@@ -37,10 +37,14 @@ func TestParseWebAndNativeLinks(t *testing.T) {
 		t.Fatalf("Parse(native) = %+v, %t, %v, want %+v", wrapped, ok, err, spec)
 	}
 
-	direct := "aram://open?app=" + urlQueryEscape(app) + "&sha256=" + digest
-	got, ok, err := Parse(direct)
-	if err != nil || !ok || got != spec {
-		t.Fatalf("Parse(direct) = %+v, %t, %v, want %+v", got, ok, err, spec)
+	for _, direct := range []string{
+		"aram://open?app=" + urlQueryEscape(app) + "&sha256=" + digest,
+		"aram://open/?app=" + urlQueryEscape(app) + "&sha256=" + digest,
+	} {
+		got, ok, err := Parse(direct)
+		if err != nil || !ok || got != spec {
+			t.Fatalf("Parse(%q) = %+v, %t, %v, want %+v", direct, got, ok, err, spec)
+		}
 	}
 }
 
