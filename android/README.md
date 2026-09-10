@@ -11,6 +11,7 @@ is not the standalone frontend preview: the AAR statically includes the pinned
 - Storage Access Framework document selection;
 - private, bounded copies of provider documents for the Go backend;
 - incoming View/Send document intents;
+- verified `aram.mir.sh/player/` App Links and `aram://open` deep links;
 - audio focus and gamepad/touch delivery through Ebitengine;
 - handing downloaded product updates to the system package installer.
 
@@ -61,6 +62,15 @@ The selected document is copied into the app-private `files/imports`
 directory. ARAM never edits the provider-owned source. Android may grant a
 persistable URI permission, but emulation uses only the private copy so the
 backend always receives a seekable filesystem path.
+
+An App Link carries the web player's `app` HTTPS URL and mandatory `sha256`
+digest. ARAM downloads at most 32 MiB without credentials, rejects non-HTTPS
+redirects and digest mismatches, then stores the verified package below
+`files/config/ARAM/downloads`. Reopening the same link reuses the verified local
+copy, and the integration backend's SHA-256-keyed save data is restored in the
+same way as for a manually selected file. `aram.mir.sh/.well-known/assetlinks.json`
+must contain every release signing certificate, including a future Google Play
+App Signing certificate, before that signer can receive verified App Links.
 
 ## Play Store advertising
 

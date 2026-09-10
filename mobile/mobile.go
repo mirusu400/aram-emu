@@ -4,6 +4,7 @@
 package mobile
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/mobile"
 
 	"github.com/mirusu400/aram-emu/integration"
+	"github.com/mirusu400/aram-emu/internal/remoteinput"
 	"github.com/mirusu400/aram-frontend/frontend"
 )
 
@@ -166,6 +168,26 @@ func CancelTextInput(requestID int64) {
 // OpenDocument opens a package imported by the native host.
 func OpenDocument(path, displayName string) {
 	game.instance().OpenExternalDocument(path, displayName, false)
+}
+
+// OpenLink downloads, verifies, persists, and opens an ARAM web-player or
+// aram:// deep link. Native hosts should call it away from their UI thread.
+// The returned string is empty on success and suitable for a platform error UI.
+func OpenLink(raw string) string {
+	shell := game.instance()
+	shell.ReportExternalOpenStatus("Downloading and verifying linked package...")
+	path, spec, err := remoteinput.Resolve(context.Background(), nil, "", raw)
+	if err != nil {
+		message := "Open link: " + err.Error()
+		shell.ReportExternalOpenStatus(message)
+		return message
+	}
+	shell.OpenExternalRequest(frontend.OpenRequest{
+		Path:           path,
+		DisplayName:    spec.Name,
+		ExpectedSHA256: spec.SHA256,
+	})
+	return ""
 }
 
 // OpenFirmware opens firmware imported by the native host.

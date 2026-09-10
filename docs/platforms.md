@@ -23,6 +23,12 @@ native dialogs and window behavior. Packaging remains platform-specific:
 - macOS: icon-bearing arm64 app bundle now; universal binaries, entitlements,
   signing, and notarization later.
 
+Windows registers the per-user `aram://` URL protocol on launch. The macOS app
+bundle declares the same scheme and receives both launch-time and later URL-open
+Apple Events. Both hosts accept the public web-player permalink, download the
+HTTPS package into the persistent ARAM download library, verify the required
+SHA-256, and open that saved file through the normal frontend/backend contract.
+
 ## Android
 
 The integrated product exports its Ebitengine mobile game into an AAR. The
@@ -45,6 +51,13 @@ to copy a selected provider
 document into private storage before passing a seekable path to the ordinary
 integration backend. It also forwards View/Send intents, lifecycle state,
 audio focus, touch, keyboard, and gamepad events.
+
+The Activity additionally handles the verified Android App Link
+`https://aram.mir.sh/player/…` and the cross-platform `aram://open` scheme. The
+Go mobile bridge performs the same bounded HTTPS download and digest check as
+desktop, persists the package below app-private configuration storage, and
+opens it by path. Save data remains keyed by the loaded package SHA-256, so the
+same link restores the same title storage after relaunch.
 
 Both channels are repo-signed with intentionally public keystores, so they
 provide install and update continuity, not release authenticity. Store-grade

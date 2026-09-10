@@ -662,8 +662,35 @@ public final class MainActivity extends Activity
             }
         }
         if (uri != null) {
-            importDocument(uri, DOCUMENT_KIND_INPUT);
+            if (isRemoteAppLink(uri)) {
+                openRemoteAppLink(uri);
+            } else {
+                importDocument(uri, DOCUMENT_KIND_INPUT);
+            }
         }
+    }
+
+    private static boolean isRemoteAppLink(Uri uri) {
+        String scheme = uri.getScheme();
+        if ("aram".equalsIgnoreCase(scheme)) {
+            return "open".equalsIgnoreCase(uri.getHost());
+        }
+        return "https".equalsIgnoreCase(scheme)
+                && "aram.mir.sh".equalsIgnoreCase(uri.getHost());
+    }
+
+    private void openRemoteAppLink(Uri uri) {
+        importExecutor.execute(() -> {
+            String error = Mobile.openLink(uri.toString());
+            if (error == null || error.isEmpty()) {
+                return;
+            }
+            runOnUiThread(() -> Toast.makeText(
+                    this,
+                    getString(R.string.link_open_failed, error),
+                    Toast.LENGTH_LONG
+            ).show());
+        });
     }
 
     private void importDocument(Uri uri, String kind) {

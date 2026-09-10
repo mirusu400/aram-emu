@@ -244,7 +244,19 @@ func inspectSource(
 		}, nil, errors.New("the selected document has no backend-readable path or handle")
 	}
 
-	fileInfo, err := os.Stat(request.Path)
+	sourceFile, err := os.Open(request.Path)
+	if err != nil {
+		return aramcore.Source{}, frontend.InputInfo{
+			DisplayName: displayName(request),
+		}, nil, err
+	}
+	closeOnError := true
+	defer func() {
+		if closeOnError {
+			_ = sourceFile.Close()
+		}
+	}()
+	fileInfo, err := sourceFile.Stat()
 	if err != nil {
 		return aramcore.Source{}, frontend.InputInfo{
 			DisplayName: displayName(request),
@@ -256,21 +268,34 @@ func inspectSource(
 			Format:      "firmware-directory",
 		}, nil, errors.New("firmware directory machines are not implemented by aram-core")
 	}
+	if !fileInfo.Mode().IsRegular() {
+		return aramcore.Source{}, frontend.InputInfo{
+			DisplayName: displayName(request),
+		}, nil, errors.New("the selected input is not a regular file")
+	}
 
-	report, err := loader.InspectFile(request.Path)
+	absolute, err := filepath.Abs(request.Path)
+	if err != nil {
+		absolute = request.Path
+	}
+	report, err := loader.Inspect(absolute, sourceFile, fileInfo.Size())
 	if err != nil {
 		return aramcore.Source{}, frontend.InputInfo{
 			DisplayName: displayName(request),
 		}, nil, err
 	}
-	sourceFile, err := os.Open(request.Path)
-	if err != nil {
+	if request.ExpectedSHA256 != "" &&
+		!strings.EqualFold(report.SHA256, request.ExpectedSHA256) {
 		return aramcore.Source{}, frontend.InputInfo{
-			DisplayName: displayName(request),
-			Format:      string(report.Kind),
-			Size:        report.Size,
-			SHA256:      report.SHA256,
-		}, nil, err
+				DisplayName: displayName(request),
+				Format:      string(report.Kind),
+				Size:        report.Size,
+				SHA256:      report.SHA256,
+			}, nil, fmt.Errorf(
+				"input SHA-256 mismatch (expected %s, got %s)",
+				request.ExpectedSHA256,
+				report.SHA256,
+			)
 	}
 	name := request.DisplayName
 	if name == "" {
@@ -290,6 +315,7 @@ func inspectSource(
 		Size:        report.Size,
 		SHA256:      report.SHA256,
 	}
+	closeOnError = false
 	return source, info, sourceFile, nil
 }
 
@@ -311,6 +337,19 @@ func inspectSourceBytes(
 		return aramcore.Source{}, frontend.InputInfo{
 			DisplayName: name,
 		}, nil, err
+	}
+	if request.ExpectedSHA256 != "" &&
+		!strings.EqualFold(report.SHA256, request.ExpectedSHA256) {
+		return aramcore.Source{}, frontend.InputInfo{
+				DisplayName: name,
+				Format:      string(report.Kind),
+				Size:        report.Size,
+				SHA256:      report.SHA256,
+			}, nil, fmt.Errorf(
+				"input SHA-256 mismatch (expected %s, got %s)",
+				request.ExpectedSHA256,
+				report.SHA256,
+			)
 	}
 	source := aramcore.Source{
 		Name:     name,

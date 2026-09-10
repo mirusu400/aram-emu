@@ -39,6 +39,20 @@ It runs on **Windows, Linux, macOS, and Android**, and there's a full
   in your browser; nothing is uploaded.
 - **⬇ Download the app:** grab the latest build for your system.
 
+An integrity-pinned player link can open the installed app directly:
+
+```text
+https://aram.mir.sh/player/?app=https%3A%2F%2Fexample.com%2Fgame.zip&sha256=<64-hex-digest>
+```
+
+Android opens verified `aram.mir.sh/player/` links in ARAM. The web player also
+shows **Open in installed ARAM app**, which uses the `aram://open` protocol on
+Windows, macOS, and Android. ARAM downloads only HTTPS packages with the exact
+SHA-256 in the link, limits them to 32 MiB, saves them in its private persistent
+library, and then opens the ordinary product path. Recent-file entries and
+per-title save data therefore survive relaunches without asking the user to pick
+the file again.
+
 | | Download (latest stable) |
 |---|---|
 | **Windows** | [aram-windows-amd64.zip](https://github.com/mirusu400/aram-emu/releases/latest/download/aram-windows-amd64.zip) |

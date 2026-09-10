@@ -3,11 +3,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/mirusu400/aram-emu/hostbackend"
 	"github.com/mirusu400/aram-emu/internal/bootstrap"
+	"github.com/mirusu400/aram-emu/internal/remoteinput"
 	"github.com/mirusu400/aram-frontend/frontend"
 )
 
@@ -58,11 +60,20 @@ func main() {
 	if err := bootstrap.PruneRuntimes(keptPreviousRuntimes); err != nil {
 		fmt.Fprintln(os.Stderr, "aram: superseded runtimes:", err)
 	}
+	if err := configurePlatformDeepLinks(); err != nil {
+		fmt.Fprintln(os.Stderr, "aram: deep links:", err)
+	}
 
-	initialPath, openOnStart := parseArguments(os.Args[1:])
+	initialArgument, _ := parseArguments(os.Args[1:])
+	initialPath := initialArgument
+	initialLink := ""
+	if _, recognized, _ := remoteinput.Parse(initialPath); recognized {
+		initialLink = initialPath
+		initialPath = ""
+	}
 	relaunchArgs := []string{openAfterInstallArgument}
-	if initialPath != "" {
-		relaunchArgs = []string{initialPath}
+	if initialArgument != "" {
+		relaunchArgs = []string{initialArgument}
 	}
 	backend := &productBackend{
 		Backend: hostbackend.NewBackend(hostbackend.Options{
@@ -71,10 +82,41 @@ func main() {
 		relaunchArgs: relaunchArgs,
 	}
 	defer backend.Close()
-	if err := frontend.RunWithOptions(backend, initialPath, openOnStart); err != nil {
+	if err := frontend.RunWithDesktopShell(backend, initialPath, func(shell *frontend.Shell) {
+		links := make(chan string, 8)
+		go func() {
+			for link := range links {
+				openRemoteLink(shell, link)
+			}
+		}()
+		if initialLink != "" {
+			links <- initialLink
+		}
+		go func() {
+			for link := range platformDeepLinkEvents() {
+				links <- link
+			}
+		}()
+	}); err != nil {
 		fmt.Fprintln(os.Stderr, "aram:", err)
 		os.Exit(1)
 	}
+}
+
+func openRemoteLink(shell *frontend.Shell, raw string) {
+	shell.ReportExternalOpenStatus("Downloading and verifying linked package...")
+	path, spec, err := remoteinput.Resolve(context.Background(), nil, "", raw)
+	if err != nil {
+		message := "Open link: " + err.Error()
+		shell.ReportExternalOpenStatus(message)
+		fmt.Fprintln(os.Stderr, "aram:", message)
+		return
+	}
+	shell.OpenExternalRequest(frontend.OpenRequest{
+		Path:           path,
+		DisplayName:    spec.Name,
+		ExpectedSHA256: spec.SHA256,
+	})
 }
 
 func parseArguments(args []string) (string, bool) {
