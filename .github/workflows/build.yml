@@ -563,6 +563,121 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  libretro-android:
+    name: Android libretro core
+    needs:
+      - resolve-components
+    runs-on: windows-latest
+    steps:
+      - name: Check out product
+        uses: actions/checkout@v6
+        with:
+          path: aram-emu
+          persist-credentials: false
+
+      - name: Check out core
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-core
+          ref: ${{ needs.resolve-components.outputs.core_sha }}
+          path: aram-core
+          persist-credentials: false
+
+      - name: Check out frontend
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-frontend
+          ref: ${{ needs.resolve-components.outputs.frontend_sha }}
+          path: aram-frontend
+          persist-credentials: false
+
+      - name: Check out authd
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-authd
+          ref: ${{ needs.resolve-components.outputs.authd_sha }}
+          path: aram-authd
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: aram-emu/go.mod
+          cache-dependency-path: |
+            aram-emu/go.sum
+            aram-emu/go.work.sum
+            aram-core/go.sum
+            aram-frontend/go.sum
+            aram-authd/go.sum
+
+      - name: Install Android NDK
+        shell: pwsh
+        run: |
+          $sdkmanager = Join-Path $env:ANDROID_HOME 'cmdline-tools\latest\bin\sdkmanager.bat'
+          if (-not (Test-Path $sdkmanager)) {
+            throw "sdkmanager was not found at $sdkmanager"
+          }
+          & $sdkmanager 'ndk;28.2.13676358'
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Android NDK installation failed'
+          }
+          "ANDROID_NDK_HOME=$env:ANDROID_HOME\ndk\28.2.13676358" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build and verify libretro cores
+        working-directory: aram-emu
+        shell: pwsh
+        run: |
+          .\scripts\build-libretro-android.ps1 -Abi arm64-v8a
+          .\scripts\build-libretro-android.ps1 -Abi x86_64
+          $readelf = Join-Path $env:ANDROID_NDK_HOME 'toolchains\llvm\prebuilt\windows-x86_64\bin\llvm-readelf.exe'
+          $targets = @(
+            @{ Abi = 'arm64-v8a'; Machine = 'AArch64' },
+            @{ Abi = 'x86_64'; Machine = 'Advanced Micro Devices X86-64' }
+          )
+          foreach ($target in $targets) {
+            $library = "build\libretro\android\$($target.Abi)\aram_libretro_android.so"
+            if (-not (Test-Path $library)) {
+              throw "Missing libretro core: $library"
+            }
+            $header = (& $readelf -h $library) -join "`n"
+            if ($header -notmatch [regex]::Escape($target.Machine)) {
+              throw "Unexpected ELF machine for $library"
+            }
+            $symbols = (& $readelf --dyn-syms $library) -join "`n"
+            foreach ($symbol in @('retro_api_version', 'retro_load_game', 'retro_run', 'retro_unload_game')) {
+              if ($symbols -notmatch "\b$symbol\b") {
+                throw "Missing exported symbol $symbol in $library"
+              }
+            }
+          }
+
+      - name: Package libretro cores
+        working-directory: aram-emu
+        shell: pwsh
+        run: |
+          $package = 'build\package\aram-libretro-android'
+          New-Item -ItemType Directory -Force "$package\arm64-v8a", "$package\x86_64" | Out-Null
+          Copy-Item 'build\libretro\android\arm64-v8a\aram_libretro_android.so' "$package\arm64-v8a\"
+          Copy-Item 'build\libretro\android\x86_64\aram_libretro_android.so' "$package\x86_64\"
+          Copy-Item 'docs\libretro.md' "$package\README.md"
+          @(
+            "aram-emu=$env:GITHUB_SHA"
+            "aram-core=${{ needs.resolve-components.outputs.core_sha }}"
+            "aram-frontend=${{ needs.resolve-components.outputs.frontend_sha }}"
+            "aram-authd=${{ needs.resolve-components.outputs.authd_sha }}"
+          ) | Set-Content "$package\BUILD-INFO.txt"
+          New-Item -ItemType Directory -Force 'dist' | Out-Null
+          Compress-Archive -Path "$package\*" -DestinationPath 'dist\aram-libretro-android.zip'
+
+      - name: Upload Android libretro cores
+        uses: actions/upload-artifact@v7
+        with:
+          name: aram-libretro-android
+          path: aram-emu/dist/aram-libretro-android.zip
+          if-no-files-found: error
+          retention-days: 14
+
   web:
     name: Web (WebAssembly)
     needs:
@@ -812,6 +927,7 @@ jobs:
       - resolve-components
       - desktop
       - android
+      - libretro-android
       - web
       - rgds
     runs-on: ubuntu-latest
@@ -833,6 +949,7 @@ jobs:
           test -f aram-linux-amd64.tar.gz
           test -f aram-macos-arm64.tar.gz
           test -f aram-android-universal.apk
+          test -f aram-libretro-android.zip
           test -f aram-web.zip
           test -f aram-rocknix-arm64.tar.gz
           sha256sum \
@@ -840,6 +957,7 @@ jobs:
             aram-linux-amd64.tar.gz \
             aram-macos-arm64.tar.gz \
             aram-android-universal.apk \
+            aram-libretro-android.zip \
             aram-web.zip \
             aram-rocknix-arm64.tar.gz \
             > SHA256SUMS.txt
@@ -905,6 +1023,7 @@ jobs:
       - resolve-components
       - desktop
       - android
+      - libretro-android
       - web
       - rgds
     runs-on: ubuntu-latest
@@ -926,6 +1045,7 @@ jobs:
           test -f aram-rocknix-arm64.tar.gz
           test -f aram-web.zip
           test -f aram-android-universal.apk
+          test -f aram-libretro-android.zip
           sha256sum \
             aram-windows-amd64.zip \
             aram-linux-amd64.tar.gz \
@@ -933,6 +1053,7 @@ jobs:
             aram-rocknix-arm64.tar.gz \
             aram-web.zip \
             aram-android-universal.apk \
+            aram-libretro-android.zip \
             > SHA256SUMS.txt
       - name: Attach archives to the published release
         env:
