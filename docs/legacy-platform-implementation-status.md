@@ -160,3 +160,11 @@ are synthetic/reference inputs. Eight removed rows are the ALZ and seven other
 files included in P0 inventory but outside the ZIP black-box discovery scope,
 not successful executions or missing configured roots. Product dependency
 revisions are pinned in `product-components.json` in the coordinated commit.
+
+Post-submission integration found concurrent upstream KTF and Android libretro
+changes. These were merged, not overwritten. The probe audio conflict retained
+the explicit stereo helper, and the core pin includes both sparse KTF support
+and this Java work. The complete ordered local gate was rerun after the merge:
+all public/synthetic/build/binder checks still pass, and the same missing-input
+private reference failures remain. This merge does not claim a new libretro
+device smoke test or remove any upstream emulator entry path.
