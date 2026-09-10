@@ -20,6 +20,7 @@ static int16_t *audio_buffer;
 static size_t audio_capacity;
 static unsigned last_width;
 static unsigned last_height;
+static bool can_dupe;
 
 static void log_message(enum retro_log_level level, const char *message)
 {
@@ -104,6 +105,8 @@ void retro_set_environment(retro_environment_t cb)
    cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, (void *)descriptors);
    if (cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging))
       log_cb = logging.log;
+   if (!cb(RETRO_ENVIRONMENT_GET_CAN_DUPE, &can_dupe))
+      can_dupe = false;
 }
 
 void retro_set_video_refresh(retro_video_refresh_t cb) { video_cb = cb; }
@@ -192,6 +195,10 @@ void retro_run(void)
 
    if (!aram_run(buttons)) {
       log_last_error("run");
+      /* A failed frame still counts as a frame: dupe the previous one so the
+       * frontend keeps its timing instead of stalling on a missing refresh. */
+      if (video_cb && can_dupe && last_width && last_height)
+         video_cb(NULL, last_width, last_height, 0);
       return;
    }
 

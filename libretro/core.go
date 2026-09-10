@@ -154,19 +154,24 @@ func (c *Core) Run(ctx context.Context, buttons uint16) (RunResult, error) {
 	if err := c.queueControls(mappedControls(buttons)); err != nil {
 		return RunResult{}, err
 	}
+	// A guest that has exited or faulted holds its final frame until the
+	// frontend resets or reloads it; restarting from that state is rejected by
+	// the core and would otherwise fail every subsequent retro_run.
 	var err error
-	if !c.started {
-		err = c.machine.Start(ctx)
-		if err == nil {
-			c.started = machineCanContinue(c.machine.State())
+	if !machineHalted(c.machine.State()) {
+		if !c.started {
+			err = c.machine.Start(ctx)
+			if err == nil {
+				c.started = machineCanContinue(c.machine.State())
+			}
+		} else {
+			err = c.machine.StepFrame(ctx)
 		}
-	} else if machineCanContinue(c.machine.State()) {
-		err = c.machine.StepFrame(ctx)
 	}
 	if err != nil {
 		return RunResult{}, fmt.Errorf("advance machine: %w", err)
 	}
-	if c.machine.State() == aramcore.StateStopped {
+	if c.machine.State() == aramcore.StateStopped && c.started {
 		c.started = false
 		_ = c.persistSaveData()
 	}
@@ -458,6 +463,10 @@ func (c *Core) persistSaveData() error {
 
 func machineCanContinue(state aramcore.State) bool {
 	return state == aramcore.StateReady || state == aramcore.StateRunning || state == aramcore.StatePaused
+}
+
+func machineHalted(state aramcore.State) bool {
+	return state == aramcore.StateStopped || state == aramcore.StateFaulted
 }
 
 func unwrapMachine(machine aramcore.Machine) aramcore.Machine {

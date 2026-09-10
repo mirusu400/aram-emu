@@ -33,9 +33,19 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $core = Join-Path $repo "build\libretro\android\x86_64\aram_libretro_android.so"
-& $adb @adbArgs push $core /data/local/tmp/aram_libretro_android.so | Out-Host
-& $adb @adbArgs push $smokeHost /data/local/tmp/aram-libretro-smoke | Out-Host
+foreach ($push in @(
+    @{ Source = $core; Target = "/data/local/tmp/aram_libretro_android.so" },
+    @{ Source = $smokeHost; Target = "/data/local/tmp/aram-libretro-smoke" }
+)) {
+    & $adb @adbArgs push $push.Source $push.Target | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "adb push failed for $($push.Source)"
+    }
+}
 & $adb @adbArgs shell chmod 755 /data/local/tmp/aram-libretro-smoke
+if ($LASTEXITCODE -ne 0) {
+    throw "chmod of the smoke host failed"
+}
 & $adb @adbArgs shell "mkdir -p /data/local/tmp/aram-libretro-save && /data/local/tmp/aram-libretro-smoke /data/local/tmp/aram_libretro_android.so"
 if ($LASTEXITCODE -ne 0) {
     throw "Android libretro smoke test failed"
