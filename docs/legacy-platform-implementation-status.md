@@ -276,3 +276,32 @@ The Windows smoke exposes the same unsupported `GraphicsX.setAlpha(I)V`
 boundary. It verifies ordinary initialization and visible identity, not a
 correctly rendered reference screen, successful gameplay or automated native
 File/Open chooser selection.
+
+### Concurrent upstream follow-up
+
+The PR component pin conflicted with newly published upstream revisions. The
+coordinated branches merge, rather than overwrite, the KTF initial native
+framebuffer and file-read exception fixes, Raptor direct-input HAL support,
+shared-media loop/effect isolation tests, and SDK default-format correction.
+The product pin is updated to a core commit containing both lines of work.
+
+Upstream SDK commit `3b4fc6e` corrects its format assertion to the ordinary
+product's existing 44.1 kHz **mono** default. This agrees with the frontend's
+default-channel regression test and the previously frozen probe output. The
+earlier forced-stereo workaround described in the historical record is therefore
+superseded: the probe now explicitly requests the same mono default. Its owning
+test first fails with the old stereo setting, then passes with mono for both mix
+policies. The upstream SDK assertions, diagnostic zero requirements, and existing
+stereo-chunk validation tests are retained, not loosened to accept either format.
+
+The complete post-merge ordered loop passes public tests/vet, all 83 runner
+tests, synthetic 15/15, SDK 10/10, Windows builds, core portability and official
+Android binding. The SDK audio-player and media-suite outputs are observed at
+44.1 kHz mono with the existing continuity checks passing. Full private `all`
+still exits 1 from the same six missing KTF/Raptor-input tests, with no unexpected
+skips. All 491 pre/post-merge black-box rows are unchanged, with zero regressions
+or removals, and the seven private triage clusters remain visible.
+
+A fresh ordinary explicit-LGT original-input rerun after the merge reproduces
+the same 2,524 / 13,376 / 13,743 instruction milestones and identical framebuffer
+hash. The remaining `GraphicsX.setAlpha(I)V` input boundary is unchanged.
