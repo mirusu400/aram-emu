@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/mirusu400/aram-emu/hostbackend"
 	"github.com/mirusu400/aram-emu/internal/bootstrap"
@@ -31,10 +32,7 @@ func (backend *productBackend) InstallProductUpdate(
 	if err != nil {
 		return fmt.Errorf("install %s product update: %w", update.Channel, err)
 	}
-	relaunchArgs := backend.relaunchArgs
-	if update.RelaunchPath != "" {
-		relaunchArgs = []string{update.RelaunchPath}
-	}
+	relaunchArgs := updateRelaunchArguments(backend.relaunchArgs, update.RelaunchPath)
 	if err := bootstrap.Launch(executable, relaunchArgs); err != nil {
 		return err
 	}
@@ -46,6 +44,12 @@ func main() {
 	// rather than launching the GUI or handing off to an installed runtime.
 	if len(os.Args) >= 2 && os.Args[1] == "save" {
 		os.Exit(runSaveCommand(os.Args[2:]))
+	}
+	arguments, err := parseDesktopArguments(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "aram:", err)
+		fmt.Fprintln(os.Stderr, "usage: aram [--profile <profile-id>] <local-input>")
+		os.Exit(2)
 	}
 
 	if forwarded, err := bootstrap.ForwardToInstalled(os.Args[1:]); err != nil {
@@ -64,25 +68,29 @@ func main() {
 		fmt.Fprintln(os.Stderr, "aram: deep links:", err)
 	}
 
-	initialArgument, _ := parseArguments(os.Args[1:])
+	initialArgument := arguments.initialArgument
 	initialPath := initialArgument
 	initialLink := ""
 	if _, recognized, _ := remoteinput.Parse(initialPath); recognized {
 		initialLink = initialPath
 		initialPath = ""
 	}
-	relaunchArgs := []string{openAfterInstallArgument}
-	if initialArgument != "" {
-		relaunchArgs = []string{initialArgument}
+	if arguments.profileID != "" {
+		// Queue the fully described initial request instead of opening its path
+		// twice. Later File/Open, drops and links retain their normal behavior.
+		initialPath = ""
 	}
 	backend := &productBackend{
 		Backend: hostbackend.NewBackend(hostbackend.Options{
 			System: hostbackend.DefaultSystemOptions(),
 		}),
-		relaunchArgs: relaunchArgs,
+		relaunchArgs: arguments.relaunchArguments(),
 	}
 	defer backend.Close()
 	if err := frontend.RunWithDesktopShell(backend, initialPath, func(shell *frontend.Shell) {
+		if arguments.profileID != "" {
+			shell.OpenExternalRequest(arguments.localOpenRequest())
+		}
 		links := make(chan string, 8)
 		go func() {
 			for link := range links {
@@ -132,4 +140,81 @@ func parseArguments(args []string) (string, bool) {
 		}
 	}
 	return initialPath, openOnStart
+}
+
+type desktopArguments struct {
+	initialArgument string
+	profileID       string
+	openOnStart     bool
+}
+
+func parseDesktopArguments(args []string) (desktopArguments, error) {
+	var result desktopArguments
+	var positional []string
+	profileSeen := false
+	for i := 0; i < len(args); i++ {
+		argument := args[i]
+		if argument == "--profile" || strings.HasPrefix(argument, "--profile=") {
+			if profileSeen {
+				return result, fmt.Errorf("--profile may only be specified once")
+			}
+			profileSeen = true
+			value := strings.TrimPrefix(argument, "--profile=")
+			if argument == "--profile" {
+				i++
+				if i >= len(args) {
+					return result, fmt.Errorf("--profile requires a profile ID")
+				}
+				value = args[i]
+			}
+			if strings.TrimSpace(value) == "" || strings.HasPrefix(value, "-") {
+				return result, fmt.Errorf("--profile requires a non-empty profile ID")
+			}
+			result.profileID = value
+			continue
+		}
+		positional = append(positional, argument)
+	}
+	result.initialArgument, result.openOnStart = parseArguments(positional)
+	if profileSeen {
+		count := 0
+		for _, argument := range positional {
+			if argument != openAfterInstallArgument {
+				count++
+			}
+		}
+		if count != 1 || strings.TrimSpace(result.initialArgument) == "" {
+			return result, fmt.Errorf("--profile requires exactly one local input")
+		}
+		if _, recognized, _ := remoteinput.Parse(result.initialArgument); recognized {
+			return result, fmt.Errorf("--profile cannot be used with a remote link; open a local input instead")
+		}
+	}
+	return result, nil
+}
+
+func (args desktopArguments) localOpenRequest() frontend.OpenRequest {
+	return frontend.OpenRequest{Path: args.initialArgument, ProfileID: args.profileID}
+}
+
+func (args desktopArguments) relaunchArguments() []string {
+	if args.profileID != "" {
+		return []string{"--profile", args.profileID, args.initialArgument}
+	}
+	if args.initialArgument != "" {
+		return []string{args.initialArgument}
+	}
+	return []string{openAfterInstallArgument}
+}
+
+func updateRelaunchArguments(initial []string, path string) []string {
+	if path == "" {
+		return initial
+	}
+	args, err := parseDesktopArguments(initial)
+	if err == nil && args.initialArgument == path {
+		return initial
+	}
+	// An update reopening a different input must not inherit the initial override.
+	return []string{path}
 }
