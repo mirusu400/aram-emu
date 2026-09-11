@@ -135,7 +135,19 @@ Run the integrated desktop app from a checkout:
 ```powershell
 go run ./cmd/aram
 go run ./cmd/aram path\to\your-input.dat
+go run ./cmd/aram --profile j2me-1.0/lgt/generic path\to\your-input.zip
 ```
+
+Installed desktop builds accept the same option:
+`aram.exe --profile j2me-1.0/lgt/generic "path\to\your-input.zip"`.
+`--profile=<profile-id>` also works. The override applies only to that initial
+local open, not later File/Open, drag-and-drop, or incoming links. Existing
+per-title/recent-file profile behavior is unchanged. An update relaunch retains
+the override when reopening the same initial input, not a different input.
+Missing, empty, or duplicate profile flags, multiple inputs with a profile, and
+profile flags combined with remote links are errors. Unknown or incompatible
+profile IDs are reported by the normal product open workflow. Launching without
+arguments, ordinary positional opens, and `aram save ...` remain unchanged.
 
 Build the browser version:
 

@@ -56,7 +56,8 @@ an API behaves correctly. The audit parsed 105 JARs and 1,097 classes, finding
 corpus. All 105 JARs reference `mmpp/media/MediaPlayer`. No fabricated
 success-returning API was added to suppress those dependencies.
 
-A memory-only probe of the standalone inner JAR with SHA-256
+Before the subsequent MMPP adapters below, a memory-only probe of the standalone
+inner JAR with SHA-256
 `ffd8c6e82ce6afabb270886a162d28fbef3f88332ee2ff40e139abfd369f4a06`
 (142,782 bytes), using the explicit LGT profile, loads and executes 2,200 Java
 instructions. It then fails allocating `mmpp/media/MediaPlayer`, before any
@@ -67,7 +68,7 @@ The outer ZIP with SHA-256
 is a different input. After the evidence-based archive-alias fix, the ordinary
 product probe also reports `j2me`, explicit LGT profile, `guest_fault` at
 `loads`, 2,200 instructions, no display and zero presentations for that exact
-ZIP. The failure remains the missing `mmpp/media/MediaPlayer` class.
+ZIP. At that stage the failure was the missing `mmpp/media/MediaPlayer` class.
 Archive aliases with unrelated filenames require exactly one JAD/JAR pair,
 an absolute HTTP(S) metadata URL, matching declared JAR size, all three
 nonempty matching name/version/vendor fields, and an identical nonempty main
@@ -132,7 +133,7 @@ Deterministic tests cover allocation bounds, timers, queued input, virtual time,
 audio and byte-identical state replay. No timeout, slice count or expected
 milestone was weakened.
 
-Final isolated-workspace verification on 2026-09-11:
+Initial isolated-workspace verification on 2026-09-11, before the MMPP continuation:
 
 | Check | Observed result |
 |---|---|
@@ -168,3 +169,110 @@ and this Java work. The complete ordered local gate was rerun after the merge:
 all public/synthetic/build/binder checks still pass, and the same missing-input
 private reference failures remain. This merge does not claim a new libretro
 device smoke test or remove any upstream emulator entry path.
+
+## Explicit LGT MMPP continuation
+
+The later continuation uses publicly mirrored Korean MMPP Javadoc, not handset
+implementation code. The third-party archive does not identify an exact handset
+or SDK build. Documented facts and emulator choices are separated in core's
+`docs/lgt-mmpp.md` and `docs/lgt-mathfp.md`. No BREW module bootstrap or GVM
+opcode contract was established by the additional public research. P4–P7
+execution requirements therefore remain unimplemented, not silently satisfied.
+
+The explicit LGT policy adds bounded, service-backed MediaPlayer source and
+playback operations, timed BackLight on/off, and an integer-based MathFP subset.
+Generic J2ME and SKT do not receive these MMPP classes. Volume String semantics,
+backlight colors, external savedata import and unimplemented mathematical APIs
+remain unsupported. The LGT native-policy digest rejects pre-adapter LGT states
+instead of silently accepting a changed host contract.
+
+The ordinary Windows product accepts `--profile <profile-id>` for one local
+initial input. The override does not leak into later File/Open requests or a
+different input selected for updater relaunch. No title-specific launcher or
+filename-based carrier inference is introduced.
+
+| Changed contract | Concrete verification |
+|---|---|
+| LGT policy and state identity | Host configuration tests, exact registry isolation, atomic cross-policy state rejection |
+| MediaPlayer semantics | Nonzero decoded PCM, pause/resume position, loop count, source slicing and transactional replacement, deterministic replay |
+| Shared media isolation | `TestMediaPrepareAndStoppedDestroyPreserveOutput` and two-player source tests preserve queued PCM and output revision; active destruction is still rejected |
+| BackLight timing | Virtual deadline expiry, zero-duration indefinite state, explicit off, restored deadline and invalid-call state preservation |
+| MathFP subset | Native invocation and guest bytecode/static constants, rounding boundaries, overflow and guest exception catches |
+| GraphicsX identity | Three ordinary graphics producers, exact host inheritance, unrelated-type rejection, generic/SKT isolation and save-state identity replay |
+| Ordinary profile CLI | Parser error cases, scoped OpenRequest and relaunch behavior tests |
+| Recurring LGT product path | Same synthetic bytes under explicit LGT and generic profiles, exact initial and post-key RGBA hashes and two delivered input events |
+
+The new synthetic fixture SHA-256 is
+`5c4b58b68d7da2fd09525b784bad8a3a0214b47ccc95c702570ff1cb156dea8f`.
+The frozen ordinary probe faults on missing MediaPlayer at four instructions.
+The changed explicit-LGT path publishes the expected frame, while generic J2ME
+still rejects the same MMPP dependency. Audio sample assertions are owning core
+tests, not inferred from framebuffer success or the runner's telemetry.
+
+Independent review reproduced a source-validation bug: configuring a second
+player discarded the first player's 882 queued samples through temporary
+Play/Stop calls. The owning runtime now prepares a stopped clip without starting
+playback, and removing a stopped clip does not invalidate unrelated queued PCM.
+New source, replacement and rejected source cases preserve the first player's
+output. This is a tested shared-service fix, not a snapshot rollback workaround.
+
+An ordinary explicit-LGT probe of original ZIP
+`6572ae8347b894504b893ca7ad3a51fc021c9ab98abc49bed4761e2c501ca733`
+advances from the historical 2,200-instruction missing-class fault to a first
+published frame at 2,524 instructions. The frame hash is
+`cafe07a981e81aae7ab1f7f7cc38b0349a8ad3d635d3cfef2352c46eeccc5ad0`.
+This observation alone is not an expected-screen, input-response or playability
+claim. An initial input probe exposed a separate Graphics-to-GraphicsX cast
+failure at 13,733 instructions. The public GraphicsX documentation explicitly
+states that all LGT Graphics objects are GraphicsX instances. Screen, mutable
+Image and GameCanvas producers now use that exact LGT-only identity and its
+documented inheritance. Java type checks are unchanged.
+
+The final ordinary probe retains the same initial hash and remains running after
+128 time-only slices (13,376 instructions). With two OK input events it passes
+the original cast and reaches 13,743 instructions, then faults on unimplemented
+`GraphicsX.setAlpha(I)V`. The displayed hash remains unchanged. Input delivery is
+verified, but expected input response is not. P2 original-screen/input acceptance
+therefore remains incomplete. This cycle does not advertise GraphicsX extension
+methods merely because its object identity is implemented.
+
+A separate original ZIP,
+`8efbf9644e6b16bf98ec8a33867424588ba023ebaf5afee76e6a50af285a6484`,
+was reprobed in place through the ordinary explicit-LGT product probe with fresh
+state. Its missing `MathFP.parseFP(I)I` failure at 690 instructions is resolved.
+Execution now reaches 1,310 instructions and stops at the explicitly unsupported
+`MediaPlayer.setVolumeLevel` contract. It remains `guest_fault` at `loads`, with
+no display, no presentations and no valid frame. This is API-cluster progress,
+not a second original first-screen success.
+
+### Frozen-source continuation verification
+
+The complete ordered loop was rerun after the GraphicsX and media-isolation
+fixes, with no behavioral source edits during the final gate:
+
+| Check | Final observed result |
+|---|---|
+| Core, runner, frontend, integration in required order | Go tests/vet/diff checks pass; runner 83 tests pass |
+| Synthetic `all`, 4,096 slices, jobs 4 | Exit 0; 15/15 expectations pass; configured reference runs; no regression; triage empty |
+| Actual corpus `all`, 32,768 slices, 20 seconds, jobs 4 | Exit 1 from six existing mandatory tests finding no valid KTF/Raptor package; zero unexpected skips; not a passed full private gate |
+| Actual black-box coverage | All 475 original ZIPs, 15 synthetic cases and one reference input run; no timeout; synthetic 15/15 pass |
+| Same-scope continuation comparison | All 489 existing rows unchanged, two added profile-specific synthetic rows, zero regressions and zero removed rows |
+| SDK examples | 10 pass, 0 fail |
+| Windows product builds | `aram`, `aram-probe`, `aram-frontend` pass |
+| Ordinary Windows original-input CLI smoke | Visible frame, exact original SHA and explicit LGT profile verified through normal UI; spawned PID 41144 stopped, protocol registration restored, temporary screenshot removed |
+| Pure-Go core portability | Android/arm64, Linux/amd64, Darwin/arm64 pass |
+| Official Android frontend binder | Pass; AAR produced |
+| Public report privacy | Seven Markdown and nine JSON aggregate/delta/triage artifacts contain no checked private root/input-path markers; owned source review contains no private inputs |
+
+The full corpus retains default profile selection. It does not silently infer
+LGT from filenames or apply a synthetic-only profile override to private cases.
+Therefore the separately measured explicit-LGT improvements above do not change
+those 489 default-profile comparison rows. The seven existing private triage
+clusters remain visible, headed by unsupported BREW execution and external
+savedata import. Passing synthetic contracts and builds does not close the
+missing-reference, original input-response or P4–P7 acceptance requirements.
+
+The Windows smoke exposes the same unsupported `GraphicsX.setAlpha(I)V`
+boundary. It verifies ordinary initialization and visible identity, not a
+correctly rendered reference screen, successful gameplay or automated native
+File/Open chooser selection.
