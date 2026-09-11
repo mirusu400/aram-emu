@@ -305,3 +305,71 @@ or removals, and the seven private triage clusters remain visible.
 A fresh ordinary explicit-LGT original-input rerun after the merge reproduces
 the same 2,524 / 13,376 / 13,743 instruction milestones and identical framebuffer
 hash. The remaining `GraphicsX.setAlpha(I)V` input boundary is unchanged.
+
+### GraphicsX alpha follow-through
+
+This subsequent change supersedes only the `setAlpha` boundary above, not the
+historical measurements or the unfinished P0-P7 requirements. The mirrored
+GraphicsX Javadoc specifies alpha 0..256, default 256 and
+`IllegalArgumentException` outside that range. Core adds the exact LGT-only
+native and default field, per-Graphics state, and a shared 256-scale compositor.
+Blend rounding is an explicit emulator choice, not verified handset behavior.
+Old graphics snapshots retain opaque defaults, while explicit transparent state
+round-trips. Drawing temporarily applies and restores object-local alpha so
+multiple contexts sharing one image do not leak it. Existing rounded-rectangle
+geometry limitations are not claimed fixed by alpha support.
+
+The independent runner retains all original 15 fixture payloads, profiles and
+expectations and adds two identical alpha payloads with explicit LGT/generic
+profiles. Guest bytecode checks default/0/128/256 alpha and catches -1/257 errors
+before drawing again. The independent RGBA oracle expects white-on-black
+midpoint 128 and a source-alpha test pixel 64. Generic execution is rejected at
+the first GraphicsX cast with `ClassCastException`, not mislabeled as a missing
+native. Its object allocation number is not an acceptance contract. All 89
+runner unit tests and all 17 ordinary-probe synthetic cases pass in the focused
+loop. Final ordered workspace gates are recorded separately below when run.
+
+The same untouched original SHA
+`6572ae8347b894504b893ca7ad3a51fc021c9ab98abc49bed4761e2c501ca733`
+under explicit `j2me-1.0/lgt/generic` was rerun through the rebuilt ordinary
+product probe with fresh state:
+
+| Observation | Result |
+|---|---|
+| Initial frame | Running, 2,524 instructions, previous frame SHA unchanged |
+| Time only, 128 post-frame slices | Running, 13,376 instructions, previous frame SHA unchanged |
+| Two OK press/release events, 128 post-frame slices | Running, 16,299 instructions, 165 presentations and a changed valid frame |
+| Two OK events, 4,096 post-frame slices | Later MediaPlayer fault at 43,907 instructions and 576 presentations |
+| Four events from two OK presses, longer release window | Later MediaPlayer fault at 43,965 instructions and 576 presentations |
+
+The short input-response frame SHA is
+`15379b97ec3f04cb7c2ed55964055a96a5cd338b29edaad27eb2ec3fddb854f3`.
+This replaces the prior 13,743-instruction `setAlpha` fault with a concrete
+input-triggered frame change. Longer observation still fails, so this is not
+expected-reference-screen verification, sustained gameplay or playability.
+Private inputs remain in place, and observations retain no resource bytes,
+input paths or raw diagnostics.
+
+The frozen-source ordered loop completed after this change: all core,
+frontend and product Go tests/vet/diff checks, 89 runner units, synthetic
+`all` 17/17, SDK examples 10/10, Windows product builds, pure-Go core
+Android/Linux/macOS builds and the official Android binder pass. The configured
+private `all` still exits 1 from the same six mandatory KTF/Raptor tests finding
+no valid supplied input, with zero unexpected skips. Its black-box phase runs
+475 original ZIPs, 17 synthetic cases and one reference. The same-scope
+comparison has 491 unchanged rows and two new alpha profile rows, with no
+regressions or removals. Seven existing private triage clusters remain, headed
+by 358 unsupported BREW execution cases. Sixteen public aggregate/delta/triage
+artifacts have no checked private path/root/key markers.
+
+A fresh ordinary Windows `aram --profile ...` launch of the same original,
+with isolated settings, visibly renders an intro with graphics, Korean text,
+SKIP and Running status. After an attempted foreground Enter press/release,
+the UI exposes `MediaPlayer.stop: no source; handset error unspecified`.
+Automation timing does not establish that this attempted GUI input caused the
+fault or successfully reached the guest, so the GUI check proves visible
+initialization and truthful diagnostics, not an OK-response or gameplay claim.
+The ordinary probe separately establishes the short input response above.
+The exact spawned application PID 49340 and conhost child 23784 were verified
+stopped; temporary captures/binary/settings were removed, protocol registration
+matches its prelaunch backup, and the original input hash is unchanged.
