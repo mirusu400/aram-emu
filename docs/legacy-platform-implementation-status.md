@@ -373,3 +373,13 @@ The ordinary probe separately establishes the short input response above.
 The exact spawned application PID 49340 and conhost child 23784 were verified
 stopped; temporary captures/binary/settings were removed, protocol registration
 matches its prelaunch backup, and the original input hash is unchanged.
+
+The product PR subsequently conflicted with a concurrent component update.
+The branches preserve and merge upstream KTF unconfigured-phone identity,
+logical/card display height and XOR-fill fixes, plus Raptor ARM Clet callback
+retention. The core pin contains both those changes and alpha support. The
+entire ordered loop was repeated on that merged source: the same public tests,
+89 units, 17 synthetic cases and builds pass, with only the same six mandatory
+private missing-input failures. All 493 pre/post-merge comparison rows are
+unchanged. Fresh ordinary original probes reproduce the short changed-frame
+response and later `MediaPlayer.stop` boundary exactly.
