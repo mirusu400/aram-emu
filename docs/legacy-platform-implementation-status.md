@@ -408,3 +408,70 @@ authorized reference behavior is needed to choose between no-op, guest
 exception and another state transition. Existing no-source diagnostics,
 synthetic expectations and the unfinished sustained-execution milestone remain
 unchanged.
+
+
+### Media cleanup and bounded volume follow-through
+
+This continuation supersedes the earlier decision to leave every source-less
+stop unsupported. It does **not** turn the missing handset lifecycle oracle
+into a proven specification. Instead, LGT now has an explicit, versioned
+idempotent cleanup contract. A constructed player with no clip, or a validated
+already-stopped clip, preserves all state when stopped. Active/paused clips
+still stop and rewind. Invalid receivers/handles, missing-source start/pause/
+resume, unknown codecs and other invalid transitions remain errors.
+
+Independent nonbehavioral tracing of the same authorized original found one
+constructor followed immediately by stop, with no source attempts. After that
+fix, the real packaged resource was successfully prepared by the SMAF decoder,
+and the next unsupported call was setVolumeLevel. Its argument was a decimal
+value in 0 through 5. The bounded setter uses real shared gains 0/20/40/60/80/100,
+consistent with the pinned independent J2ME-Loader implementation's five-level
+maximum. This is interoperability evidence, not handset certification. The
+ambiguous available-level/current-level getter remains unsupported. See the
+[core media contract](../../aram-core/docs/lgt-mmpp.md) for choices and limits.
+LGT native policy domain v2 atomically rejects prior v1 save states; SKT and
+generic J2ME domains and the outer VM state schema remain unchanged.
+
+Actual input SHA256
+`6572ae8347b894504b893ca7ad3a51fc021c9ab98abc49bed4761e2c501ca733`, explicit
+`j2me-1.0/lgt/generic`, remained in place and unchanged. All observations use
+ordinary aram-probe executables and fresh state, not patched guest bytes:
+
+| Observation | Before | After |
+|---|---|---|
+| Initial / time-only128 / short OK128 | Running2524 / 13376 / 16299 instructions | Same instructions and exact frame hashes |
+| OK +4096 slices,20s budget | Stop fault43907 | Running197306,4133 presents, valid changed frame |
+| OK +32768 slices,120s observation | Stop fault43907 also occurred with20s | Running1432290,32805 presents |
+| Spaced OK twice,120s observation | Not separately measured with this spacing | Running289824,6181 presents,4 input events |
+| Spaced OK,OK,down,OK | Intermediate empty/volume fix still hit already-stopped stop111444 | Final cleanup runs359696,8233 presents,8 input events and changed frame |
+
+The32768 observation at the ordinary20s budget timed out after making progress;
+the separately labeled120s observation is **not** a replacement for the standard
+suite budget or a claim that its timeout passed. Frame/input progress is not a
+handset-screen oracle, completed game, or platform-wide playability result.
+
+Tests were red before each owning fix. Core tests verify exact nonzero PCM at
+all five positive volume levels, zero-volume playback progress, per-player
+state/PCM isolation, invalid input transactionality, prepared/explicitly stopped/
+naturally completed cleanup, real restart, replay and atomic v1 rejection.
+The new ordinary guest fixture covers empty cleanup, a caught missing-resource
+IOException, real WAV setup, volume, start/pause/resume/stop/repeated-stop and
+independent initial/input frame hashes. Identical bytes under generic J2ME
+retain the exact early unavailable-class failure. Existing17 fixture bytes,
+profiles and expectations are unchanged.
+
+The frozen ordered loop passed core/runner/frontend/integration tests and Go
+vet/diff checks,94 runner units,19/19 synthetic cases, Windows builds, pure-Go
+Android/Linux/macOS core builds and the official Android AAR binder. The full
+configured private suite still exits1 only because the same six KTF/Raptor
+reference tests find no valid supplied packages, with zero unexpected skips.
+All495 rows were probed: the full pre-change493 rows are unchanged and two new
+synthetic rows were added, with no regressions/removals. Seven triage clusters
+remain. This is not a passed full private gate.
+
+A Windows GUI smoke attempt was blocked by first-run welcome/channel dialog
+and foreground-control automation. Its earlier binary showed only shell Running,
+not a verified game intro or guest OK response. Its own process/settings/captures
+were cleaned and original/protocol integrity checked. No final GUI playability
+claim substitutes for that blocked acceptance path. The ordinary headless
+product and integration observations above are independently verified.
