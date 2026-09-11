@@ -383,3 +383,28 @@ entire ordered loop was repeated on that merged source: the same public tests,
 private missing-input failures. All 493 pre/post-merge comparison rows are
 unchanged. Fresh ordinary original probes reproduce the short changed-frame
 response and later `MediaPlayer.stop` boundary exactly.
+
+### No-source MediaPlayer.stop evidence follow-up
+
+The next hypothesis was that stopping a newly constructed player without a
+source should silently succeed. Re-reading the mirrored
+[MediaPlayer Javadoc](https://nikita36078.github.io/J2ME_Docs/docs/LG_MMPP_API/mmpp/media/MediaPlayer.html)
+only establishes that `stop()` stops playback. It specifies neither behavior
+before source installation nor a lifecycle/error table. Absence of a documented
+exception is not proof that an uninitialized call must succeed.
+
+An independent public implementation was also inspected at J2ME-Loader commit
+[`e4d5872a57d167fbf4b22058a24cd2ea4f8ae15b`](https://github.com/nikita36078/J2ME-Loader/blob/e4d5872a57d167fbf4b22058a24cd2ea4f8ae15b/app/src/main/java/mmpp/media/MediaPlayer.java).
+Its stop path closes a backing Java player without a null guard; construction
+does not initialize that backing player. This source inspection does not
+support the proposed no-source no-op. It is a third-party emulator, not an
+authorized handset execution oracle, and its differing source/error handling
+must not be imported as the handset contract. No source code was copied.
+
+Consequently this investigation makes no behavioral change and does not
+convert the observed 43,907-instruction failure into success. A version-qualified
+SDK lifecycle specification or a minimal constructor/stop experiment with
+authorized reference behavior is needed to choose between no-op, guest
+exception and another state transition. Existing no-source diagnostics,
+synthetic expectations and the unfinished sustained-execution milestone remain
+unchanged.
