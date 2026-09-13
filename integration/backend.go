@@ -500,6 +500,12 @@ func (backend *Backend) ExecuteCommand(
 	var err error
 	switch request.Command {
 	case frontend.CommandStart:
+		if machine.State() == aramcore.StatePaused {
+			// A frame yield leaves the core paused. Resume the adapter's run
+			// intent, as PauseResume does, without starting the guest again.
+			backend.setRunRequested(true)
+			break
+		}
 		if machine.State() == aramcore.StateStopped {
 			// The guest ended (for example a first-run Clet's MC_knlExit).
 			// Re-bootstrap it — preserving the title's writable storage — so
