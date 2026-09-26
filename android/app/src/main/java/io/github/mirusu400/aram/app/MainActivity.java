@@ -379,6 +379,11 @@ public final class MainActivity extends Activity
             Toast.makeText(this, R.string.shortcut_unavailable, Toast.LENGTH_LONG).show();
             return;
         }
+        Icon icon = gameShortcutIcon(iconPNG, manager);
+        if (icon == null) {
+            Toast.makeText(this, R.string.shortcut_icon_missing, Toast.LENGTH_LONG).show();
+            return;
+        }
 
         String id = UUID.randomUUID().toString();
         SharedPreferences preferences = getSharedPreferences(
@@ -396,7 +401,6 @@ public final class MainActivity extends Activity
         launch.setAction(ACTION_OPEN_GAME_SHORTCUT);
         launch.putExtra(EXTRA_GAME_SHORTCUT_ID, id);
         launch.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        Icon icon = gameShortcutIcon(iconPNG, manager);
         ShortcutInfo shortcut = new ShortcutInfo.Builder(this, id)
                 .setShortLabel(title)
                 .setLongLabel(title)
@@ -426,15 +430,25 @@ public final class MainActivity extends Activity
                         iconPNG, 0, iconPNG.length
                 );
                 if (bitmap != null) {
-                    int width = Math.max(1, manager.getIconMaxWidth());
-                    int height = Math.max(1, manager.getIconMaxHeight());
-                    return Icon.createWithBitmap(Bitmap.createScaledBitmap(
-                            bitmap, width, height, false
-                    ));
+                    int maxWidth = Math.max(1, manager.getIconMaxWidth());
+                    int maxHeight = Math.max(1, manager.getIconMaxHeight());
+                    if (bitmap.getWidth() > maxWidth || bitmap.getHeight() > maxHeight) {
+                        double scale = Math.min(
+                                (double) maxWidth / bitmap.getWidth(),
+                                (double) maxHeight / bitmap.getHeight()
+                        );
+                        bitmap = Bitmap.createScaledBitmap(
+                                bitmap,
+                                Math.max(1, (int) Math.round(bitmap.getWidth() * scale)),
+                                Math.max(1, (int) Math.round(bitmap.getHeight() * scale)),
+                                false
+                        );
+                    }
+                    return Icon.createWithBitmap(bitmap);
                 }
             }
         }
-        return Icon.createWithResource(this, R.mipmap.ic_aram);
+        return null;
     }
 
     private void openGameShortcut(Intent intent) {

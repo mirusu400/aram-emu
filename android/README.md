@@ -66,11 +66,11 @@ persistable URI permission, but emulation uses only the private copy so the
 backend always receives a seekable filesystem path.
 
 To pin a game, open it once, return to ARAM Home, select its Recent row, and
-tap **Shortcut**. Android 8.0+ asks the launcher to add an icon bearing the
-game's name and extracted icon when available. Tapping that icon opens and
-starts the private copy directly. The launcher intent contains only a random
-ID; ARAM keeps the path privately. Clearing app data or deleting that copy
-invalidates the shortcut.
+tap **Create shortcut** (홈 화면 바로가기 만들기). Android 8.0+ asks the launcher to
+add an icon bearing the game's name and its extracted game icon. A game with
+no icon cannot be pinned. Tapping the icon opens and starts the private copy
+directly. The launcher intent contains only a random ID; ARAM keeps the path
+privately. Clearing app data or deleting that copy invalidates the shortcut.
 
 An App Link carries the web player's `app` HTTPS URL and mandatory `sha256`
 digest. ARAM downloads at most 32 MiB without credentials, rejects non-HTTPS

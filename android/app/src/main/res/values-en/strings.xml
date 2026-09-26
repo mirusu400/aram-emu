@@ -8,5 +8,6 @@
     <string name="privacy_options">Privacy options</string>
     <string name="shortcut_unavailable">This home screen does not support game shortcuts.</string>
     <string name="shortcut_request_failed">Could not add the game shortcut.</string>
+    <string name="shortcut_icon_missing">This game has no icon, so a shortcut cannot be created.</string>
     <string name="shortcut_game_missing">This game is no longer available. Open it again in ARAM.</string>
 </resources>
