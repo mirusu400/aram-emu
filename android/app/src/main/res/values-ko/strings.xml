@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- app_name is provided per build type via resValue in app/build.gradle
-         (release -> "ARAM", debug/nightly -> "ARAM Nightly"). -->
     <string name="import_failed">파일을 열 수 없습니다: %1$s</string>
     <string name="link_open_failed">링크를 열 수 없습니다: %1$s</string>
     <string name="export_succeeded">%1$s 파일을 저장했습니다</string>
     <string name="export_failed">파일을 저장할 수 없습니다: %1$s</string>
     <string name="text_input_title">입력</string>
-    <string name="privacy_options">Privacy options</string>
+    <string name="privacy_options">개인정보 옵션</string>
     <string name="shortcut_unavailable">이 홈 화면은 게임 바로가기를 지원하지 않습니다.</string>
     <string name="shortcut_request_failed">게임 바로가기를 추가하지 못했습니다.</string>
     <string name="shortcut_game_missing">게임 파일이 없습니다. ARAM에서 다시 열어 주세요.</string>

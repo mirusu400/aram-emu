@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="import_failed">Could not open the file: %1$s</string>
+    <string name="link_open_failed">Could not open the link: %1$s</string>
+    <string name="export_succeeded">Saved %1$s</string>
+    <string name="export_failed">Could not save the file: %1$s</string>
+    <string name="text_input_title">Input</string>
+    <string name="privacy_options">Privacy options</string>
+    <string name="shortcut_unavailable">This home screen does not support game shortcuts.</string>
+    <string name="shortcut_request_failed">Could not add the game shortcut.</string>
+    <string name="shortcut_game_missing">This game is no longer available. Open it again in ARAM.</string>
+</resources>

@@ -11,6 +11,7 @@ is not the standalone frontend preview: the AAR statically includes the pinned
 - Storage Access Framework document selection;
 - Storage Access Framework create-document export for backups and debug ZIPs;
 - private, bounded copies of provider documents for the Go backend;
+- per-game pinned Home screen shortcuts for imported titles;
 - incoming View/Send document intents;
 - verified `aram.mir.sh/player/` App Links and `aram://open` deep links;
 - audio focus and gamepad/touch delivery through Ebitengine;
@@ -63,6 +64,13 @@ The selected document is copied into the app-private `files/imports`
 directory. ARAM never edits the provider-owned source. Android may grant a
 persistable URI permission, but emulation uses only the private copy so the
 backend always receives a seekable filesystem path.
+
+To pin a game, open it once, return to ARAM Home, select its Recent row, and
+tap **Shortcut**. Android 8.0+ asks the launcher to add an icon bearing the
+game's name and extracted icon when available. Tapping that icon opens and
+starts the private copy directly. The launcher intent contains only a random
+ID; ARAM keeps the path privately. Clearing app data or deleting that copy
+invalidates the shortcut.
 
 An App Link carries the web player's `app` HTTPS URL and mandatory `sha256`
 digest. ARAM downloads at most 32 MiB without credentials, rejects non-HTTPS

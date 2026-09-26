@@ -99,6 +99,10 @@ type Host interface {
 	// Ebitengine raises no soft keyboard on a handset, so the host types the
 	// text and answers once with SubmitTextInput or CancelTextInput.
 	RequestTextInput(requestID int64, label, hint, text string)
+	// PinGameShortcut asks Android's launcher to pin a shortcut for a title.
+	// The native host persists the private path and puts only an opaque ID in
+	// the launcher intent.
+	PinGameShortcut(path, title string, iconPNG []byte) error
 }
 
 var hostBridge struct {
@@ -155,11 +159,13 @@ func SetHost(host Host) {
 		frontend.SetNativePickerHost(nil)
 		frontend.SetNativeTextInputHost(nil)
 		frontend.SetNativeShareHost(nil)
+		frontend.SetNativeShortcutHost(nil)
 		return
 	}
 	frontend.SetNativePickerHost(host)
 	frontend.SetNativeTextInputHost(host)
 	frontend.SetNativeShareHost(host)
+	frontend.SetNativeShortcutHost(host)
 }
 
 // SubmitTextInput reports the text the native editor accepted for the field

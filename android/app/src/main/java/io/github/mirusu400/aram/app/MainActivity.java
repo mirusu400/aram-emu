@@ -2,8 +2,15 @@ package io.github.mirusu400.aram.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.annotation.TargetApi;
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.drawable.Icon;
 import android.database.Cursor;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
@@ -61,6 +68,10 @@ public final class MainActivity extends Activity
     private static final String STATE_PENDING_DOCUMENT_KIND = "pending_document_kind";
     private static final String STATE_PENDING_EXPORT_PATH = "pending_export_path";
     private static final String STATE_PENDING_EXPORT_TITLE = "pending_export_title";
+    private static final String ACTION_OPEN_GAME_SHORTCUT =
+            "io.github.mirusu400.aram.action.OPEN_GAME_SHORTCUT";
+    private static final String EXTRA_GAME_SHORTCUT_ID = "game_shortcut_id";
+    private static final String GAME_SHORTCUT_PREFERENCES = "game_shortcuts";
     // Document kinds the shared frontend asks for. They match
     // frontend.DocumentKind* on the Go side.
     private static final String DOCUMENT_KIND_INPUT = "input";
@@ -336,6 +347,118 @@ public final class MainActivity extends Activity
             intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
             startActivityForResult(intent, REQUEST_EXPORT_DOCUMENT);
         });
+    }
+
+    /**
+     * Pins a launcher icon for an imported game. The launcher only receives a
+     * random identifier; the private file path stays in this app's preferences.
+     */
+    @Override
+    public void pinGameShortcut(String path, String title, byte[] iconPNG) throws Exception {
+        File file = new File(path).getCanonicalFile();
+        File root = getFilesDir().getCanonicalFile();
+        if (!file.getPath().startsWith(root.getPath() + File.separator) || !file.isFile()) {
+            throw new IOException("the game is no longer in app-private storage");
+        }
+        String label = title == null || title.trim().isEmpty()
+                ? file.getName() : title.trim();
+        runOnUiThread(() -> requestGameShortcut(file, label, iconPNG));
+    }
+
+    @TargetApi(Build.VERSION_CODES.O)
+    private void requestGameShortcut(File file, String title, byte[] iconPNG) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            Toast.makeText(this, R.string.shortcut_unavailable, Toast.LENGTH_LONG).show();
+            return;
+        }
+        ShortcutManager manager = getSystemService(ShortcutManager.class);
+        if (manager == null || !manager.isRequestPinShortcutSupported()) {
+            Toast.makeText(this, R.string.shortcut_unavailable, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        String id = UUID.randomUUID().toString();
+        SharedPreferences preferences = getSharedPreferences(
+                GAME_SHORTCUT_PREFERENCES, MODE_PRIVATE
+        );
+        if (!preferences.edit()
+                .putString(id + ".path", file.getAbsolutePath())
+                .putString(id + ".title", title)
+                .commit()) {
+            Toast.makeText(this, R.string.shortcut_request_failed, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        Intent launch = new Intent(this, MainActivity.class);
+        launch.setAction(ACTION_OPEN_GAME_SHORTCUT);
+        launch.putExtra(EXTRA_GAME_SHORTCUT_ID, id);
+        launch.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        Icon icon = gameShortcutIcon(iconPNG, manager);
+        ShortcutInfo shortcut = new ShortcutInfo.Builder(this, id)
+                .setShortLabel(title)
+                .setLongLabel(title)
+                .setIcon(icon)
+                .setIntent(launch)
+                .build();
+        try {
+            if (!manager.requestPinShortcut(shortcut, null)) {
+                preferences.edit().remove(id + ".path").remove(id + ".title").apply();
+                Toast.makeText(this, R.string.shortcut_request_failed, Toast.LENGTH_LONG).show();
+            }
+        } catch (RuntimeException error) {
+            preferences.edit().remove(id + ".path").remove(id + ".title").apply();
+            Toast.makeText(this, R.string.shortcut_request_failed, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @TargetApi(Build.VERSION_CODES.O)
+    private Icon gameShortcutIcon(byte[] iconPNG, ShortcutManager manager) {
+        if (iconPNG != null && iconPNG.length > 0 && iconPNG.length <= 512 * 1024) {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(iconPNG, 0, iconPNG.length, bounds);
+            if (bounds.outWidth > 0 && bounds.outHeight > 0
+                    && bounds.outWidth <= 1024 && bounds.outHeight <= 1024) {
+                Bitmap bitmap = BitmapFactory.decodeByteArray(
+                        iconPNG, 0, iconPNG.length
+                );
+                if (bitmap != null) {
+                    int width = Math.max(1, manager.getIconMaxWidth());
+                    int height = Math.max(1, manager.getIconMaxHeight());
+                    return Icon.createWithBitmap(Bitmap.createScaledBitmap(
+                            bitmap, width, height, false
+                    ));
+                }
+            }
+        }
+        return Icon.createWithResource(this, R.mipmap.ic_aram);
+    }
+
+    private void openGameShortcut(Intent intent) {
+        String id = intent.getStringExtra(EXTRA_GAME_SHORTCUT_ID);
+        if (id == null || id.isEmpty()) {
+            return;
+        }
+        SharedPreferences preferences = getSharedPreferences(
+                GAME_SHORTCUT_PREFERENCES, MODE_PRIVATE
+        );
+        String path = preferences.getString(id + ".path", "");
+        String title = preferences.getString(id + ".title", "");
+        try {
+            File file = new File(path).getCanonicalFile();
+            File root = getFilesDir().getCanonicalFile();
+            if (file.getPath().startsWith(root.getPath() + File.separator)
+                    && file.isFile()) {
+                Mobile.openDocument(file.getAbsolutePath(), title);
+                return;
+            }
+        } catch (IOException ignored) {
+            // A moved or deleted import should leave the normal launcher open.
+        }
+        Toast.makeText(this, R.string.shortcut_game_missing, Toast.LENGTH_LONG).show();
     }
 
     /**
@@ -720,6 +843,10 @@ public final class MainActivity extends Activity
 
     private void handleIncomingIntent(Intent intent) {
         if (intent == null) {
+            return;
+        }
+        if (ACTION_OPEN_GAME_SHORTCUT.equals(intent.getAction())) {
+            openGameShortcut(intent);
             return;
         }
         Uri uri = null;
