@@ -15,13 +15,13 @@ import (
 	"strings"
 	"sync"
 
-	authd "github.com/mirusu400/aram-authd"
 	"github.com/mirusu400/aram-core/application"
 	"github.com/mirusu400/aram-core/cheat"
 	aramcore "github.com/mirusu400/aram-core/core"
 	"github.com/mirusu400/aram-core/cpu"
 	"github.com/mirusu400/aram-core/loader"
 	"github.com/mirusu400/aram-core/runtime"
+	"github.com/mirusu400/aram-emu/internal/productconfig"
 	"github.com/mirusu400/aram-frontend/frontend"
 )
 
@@ -70,19 +70,7 @@ type Backend struct {
 
 func NewBackend(factory aramcore.Factory) *Backend {
 	if factory == nil {
-		defaultFactory := application.NewFactory()
-		// aram-emu is the explicit sandboxing boundary for portable BREW modules.
-		// Carrier .sig members are structurally required but not cryptographically
-		// verified by aram-core, so library consumers remain opted out by default.
-		defaultFactory.AllowUntrustedBREW = true
-		defaultFactory.FrameRunBudget = application.DefaultHandsetRunBudget
-		defaultFactory.RaptorFrameRunBudget = application.DefaultRaptorFrameRunBudget
-		defaultFactory.KTFRunBudget = application.DefaultKTFHandsetRunBudget
-		// Emulate a successful LGT carrier DRM/auth handshake. There is no live
-		// carrier behind the emulator, so titles that gate startup on it (the
-		// "서버 접속중"/"통화료 인증" wait) would hang forever without it.
-		defaultFactory.RaptorNet = AuthdRaptorNet(authd.Grant{})
-		factory = defaultFactory
+		factory = productconfig.ApplicationFactory()
 	}
 	backend := &Backend{factory: factory, cheatStore: newCheatCatalogStore()}
 	// Experimental widescreen: a dev-only env default for the guest framebuffer

@@ -18,7 +18,7 @@ import (
 )
 
 func main() {
-	backend := integration.NewBackend(nil)
+	backend := configureBenchmark(integration.NewBackend(nil))
 	if err := frontend.Run(backend, ""); err != nil {
 		panic(err)
 	}
