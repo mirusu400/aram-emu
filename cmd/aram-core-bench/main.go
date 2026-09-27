@@ -30,7 +30,9 @@ func main() { os.Exit(run()) }
 
 func run() int {
 	input := flag.String("input", "", "operator-authorized input, read in place")
+	inputURL := flag.String("input-url", "", "optional loopback input stream (e.g. adb reverse); never stored on device")
 	scenarioPath := flag.String("scenario", "", "exact-hash frame scenario JSON")
+	scenarioURL := flag.String("scenario-url", "", "optional loopback scenario stream")
 	cpu := flag.String("cpu", "jit", "precise, jit, native or fastest")
 	timeout := flag.Duration("timeout", 5*time.Minute, "whole run timeout")
 	profile := flag.String("cpuprofile", "", "optional native CPU profile; do not compare profiled timings")
@@ -39,10 +41,12 @@ func run() int {
 		_ = json.NewEncoder(os.Stdout).Encode(framebench.Result{Schema: 1, Kind: "core-unpaced", Status: "failed", Error: message})
 		return 1
 	}
-	if *input == "" || *scenarioPath == "" || *timeout <= 0 {
-		return failure("input, scenario and positive timeout required")
+	if (*input == "") == (*inputURL == "") || (*scenarioPath == "") == (*scenarioURL == "") || *timeout <= 0 {
+		return failure("one input source, one scenario source and positive timeout required")
 	}
-	scenarioFile, err := os.Open(*scenarioPath)
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	scenarioFile, err := openBenchmarkSource(ctx, *scenarioPath, *scenarioURL)
 	if err != nil {
 		return failure("scenario unavailable")
 	}
@@ -51,7 +55,7 @@ func run() int {
 	if err != nil {
 		return failure("invalid scenario")
 	}
-	file, err := os.Open(*input)
+	file, err := openBenchmarkSource(ctx, *input, *inputURL)
 	if err != nil {
 		return failure("authorized input unavailable")
 	}
@@ -72,9 +76,12 @@ func run() int {
 	if err != nil {
 		return failure("CPU backend unavailable")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-	defer cancel()
-	machine, err := factory.Create(ctx, aramcore.Source{Name: filepath.Base(*input), ReaderAt: bytes.NewReader(data), Size: int64(len(data)), SHA256: scenario.SHA256})
+	sourceName := filepath.Base(*input)
+	if *inputURL != "" {
+		// Preserve a privacy-safe package label, never a host filesystem name.
+		sourceName = scenario.ID + ".zip"
+	}
+	machine, err := factory.Create(ctx, aramcore.Source{Name: sourceName, ReaderAt: bytes.NewReader(data), Size: int64(len(data)), SHA256: scenario.SHA256})
 	if err != nil {
 		return failure("machine creation failed")
 	}
