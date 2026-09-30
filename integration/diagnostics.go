@@ -195,6 +195,14 @@ func (backend *Backend) Diagnostics() Diagnostics {
 			snapshot.GVM = &GVMDiagnostics{}
 		}
 		snapshot.GVM.PresentCount = provider.GVMPresentCount()
+	}
+	if provider, ok := machine.(interface{ GNEX32PresentCount() uint64 }); ok {
+		if snapshot.GVM == nil {
+			snapshot.GVM = &GVMDiagnostics{}
+		}
+		snapshot.GVM.PresentCount = provider.GNEX32PresentCount()
+	}
+	if snapshot.GVM != nil {
 		if frame := machine.Framebuffer(); frame != nil {
 			bounds := frame.Bounds()
 			snapshot.GVM.FrameValid = bounds.Dx() > 0 && bounds.Dy() > 0

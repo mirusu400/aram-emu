@@ -181,6 +181,11 @@ func (backend *Backend) OpenWithProgress(
 		info.ImageSHA256 = imageSHA256
 		info.ProfileID = provider.CheatProfileID()
 		source.ProfileID = info.ProfileID
+	} else if _, ok := machine.(interface{ GNEX32PresentCount() uint64 }); ok {
+		info.Format = string(loader.KindGNEX)
+		info.ProfileID = application.GNEX32VirusProfileID
+		source.Format = info.Format
+		source.ProfileID = info.ProfileID
 	}
 	// Wrapping happens before the machine is published so every later command
 	// goes through the wrapper that serializes cheats with guest execution.
