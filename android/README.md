@@ -100,6 +100,11 @@ run number; verify it exceeds the highest code already uploaded in Play Console
 before publishing a new release. The Play AAB is attached to the GitHub release
 after the release workflow succeeds, for manual upload to Play Console.
 
+The Play flavor requires Android 7.0 (API 24) or newer for Google Play automatic
+protection. GitHub Stable and Nightly builds still support Android 6.0 (API 23).
+The shared AAR's `ebitenmobile -androidapi 23` setting does not set the Play
+app's minimum SDK; the Play flavor overrides it in `app/build.gradle`.
+
 The Play host refreshes consent using Google's User Messaging Platform (UMP)
 on every launch, displays a configured consent form when required, and shows a
 Privacy options button whenever UMP requires a persistent entry point. In the

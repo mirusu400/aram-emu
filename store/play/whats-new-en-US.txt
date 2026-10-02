@@ -1,3 +1,3 @@
+Raised the Play build's minimum Android version to 7.0 for automatic protection.
 Fixed a crash when opening the app.
-Added home-screen shortcuts for games with icons.
-Improved game compatibility, graphics, audio, and saves.
+Includes game shortcuts and compatibility improvements.

@@ -4,6 +4,20 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/)를 따르며,
 버전은 [유의적 버전](https://semver.org/lang/ko/)을 사용합니다.
 
+## [0.4.3] - 2026-10-02
+
+Google Play 자동 보호의 최소 SDK 요구 조건을 충족하도록 Play 배포판의 최소
+Android 버전을 7.0(API 24)으로 올렸습니다. GitHub에서 배포하는 APK는 계속
+Android 6.0(API 23)을 지원합니다.
+
+### Android
+- Play 릴리스 빌드의 실제 최소 SDK를 CI에서 확인하도록 개선
+- 0.4.2의 앱 시작 비정상 종료 수정 포함
+
+### 포함 구성요소
+- core `ba4b8e3`, frontend `a757c9a`, authd `4053607`
+- RG DS Ebitengine fork `4701562`
+
 ## [0.4.2] - 2026-10-02
 
 Google Play의 0.4.1 빌드가 시작 직후 종료되던 문제를 수정했습니다.
@@ -172,6 +186,7 @@ BREW·GVM 지원은 게임별로 검증 단계가 다릅니다. 특정 게임의
 
 - 최초 공개 릴리스
 
+[0.4.3]: https://github.com/mirusu400/aram-emu/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/mirusu400/aram-emu/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/mirusu400/aram-emu/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/mirusu400/aram-emu/compare/v0.3.0...v0.4.0

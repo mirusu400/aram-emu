@@ -570,7 +570,17 @@ jobs:
             -o android/app/libs/aram-play.aar \
             ./mobile
           gradle --no-daemon --stacktrace -p android \
-            :app:lintPlayDebug :app:bundlePlayRelease
+            :app:lintPlayDebug :app:assemblePlayRelease :app:bundlePlayRelease
+          play_apk="android/app/build/outputs/apk/play/release/app-play-release.apk"
+          test -f "${play_apk}"
+          aapt="$(find "${ANDROID_HOME}/build-tools" -name aapt -type f | \
+            sort -V | tail -n 1)"
+          test -x "${aapt}"
+          play_min_sdk="$("${aapt}" dump badging "${play_apk}" | \
+            sed -n "s/^sdkVersion:'\([0-9]*\)'.*/\1/p")"
+          test -n "${play_min_sdk}"
+          test "${play_min_sdk}" -ge 24
+          echo "Play release minSdk: ${play_min_sdk}"
           aab="android/app/build/outputs/bundle/playRelease/app-play-release.aab"
           test -f "${aab}"
           mapping="android/app/build/outputs/mapping/playRelease/mapping.txt"

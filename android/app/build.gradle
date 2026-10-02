@@ -114,6 +114,9 @@ android {
         // so the frontend hides its update UI as well.
         play {
             dimension "dist"
+            // Google Play automatic protection requires API 24 or newer.
+            // Keep the sideload flavors available on API 23.
+            minSdk 24
             signingConfig signingConfigs.play
         }
     }
