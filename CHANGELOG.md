@@ -4,6 +4,23 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/)를 따르며,
 버전은 [유의적 버전](https://semver.org/lang/ko/)을 사용합니다.
 
+## [0.4.2] - 2026-10-02
+
+Google Play의 0.4.1 빌드가 시작 직후 종료되던 문제를 수정했습니다.
+
+### Android
+- 릴리스 코드 축소 과정에서 WorkManager 데이터베이스 생성자가 제거되어
+  Play 앱이 열리지 않던 문제 수정
+- 아이콘이 있는 게임을 Android 홈 화면 바로가기로 추가할 수 있도록 개선
+
+### 호환성
+- GNEX/GVM을 포함한 여러 게임의 실행, 화면, 오디오와 저장 처리 개선
+- 일부 피처폰 펌웨어의 시스템 모드 부팅과 ARM/Thumb 실행 성능 개선
+
+### 포함 구성요소
+- core `dfed4d0`, frontend `a757c9a`, authd `4053607`
+- RG DS Ebitengine fork `4701562`
+
 ## [0.4.1] - 2026-09-23
 
 ### Android
@@ -155,6 +172,7 @@ BREW·GVM 지원은 게임별로 검증 단계가 다릅니다. 특정 게임의
 
 - 최초 공개 릴리스
 
+[0.4.2]: https://github.com/mirusu400/aram-emu/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/mirusu400/aram-emu/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/mirusu400/aram-emu/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mirusu400/aram-emu/compare/v0.2.1...v0.3.0

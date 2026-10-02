@@ -1,1 +1,3 @@
-Android release builds now use R8 code shrinking, optimization, and obfuscation. Unused code and resources are removed to improve app size, memory use, and overall runtime performance.
+Fixed a crash when opening the app.
+Added home-screen shortcuts for games with icons.
+Improved game compatibility, graphics, audio, and saves.
