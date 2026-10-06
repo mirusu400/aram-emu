@@ -41,6 +41,36 @@ screen.
 - Settings and recent items fail safely when paths or permissions expire.
 - Mobile UI never assumes an Android content URI is a filesystem path.
 
+## Memory Search
+
+`Tools > Memory Search` searches the loaded game's guest regions through the
+core cheat engine, independently of published cheat catalog availability.
+Choose a region, numeric type (`u8/i8/u16/i16/u32/i32/u64/i64/f32/f64`), and
+comparison. Integers accept decimal or explicitly prefixed `0x` hexadecimal,
+including signed values; floats must be finite and fit their selected type.
+
+First scan supports exact comparisons or an unknown initial value. Next scan
+filters the existing candidates by value, increase, decrease, change, or no
+change. The search type and region stay fixed until another first scan.
+Results are read live in pages of 32 while comparison baselines stay unchanged
+until the next successful scan. Close the panel to play, then reopen it to
+continue the same search.
+
+Select a result, review its current value, enter a new value, and apply it.
+Writes validate the exact displayed bits immediately before applying. A changed
+value is reported as a conflict and refreshed for review. Read-only regions and
+unreadable addresses produce explicit errors. New search clears the baseline;
+reset, state restoration, stopping, closing, or replacing the game invalidates
+it and rejects requests from previous sessions.
+
+The adapter serializes these operations with frame execution and lifecycle.
+The core uses region snapshots plus candidate bitmaps; its paged APIs are
+bounded by `MaxScanBytes` (128MiB by default), and each page is capped at 256.
+Legacy materialized APIs retain `MaxResults` (2,000,000 by default) and their
+previous-value semantics. A 32MiB u32 unknown scan retains 8,388,608 candidates
+using a 32MiB snapshot plus a 1MiB bitmap; refinement temporarily needs both
+the previous and new snapshots and bitmaps.
+
 ## Debug export
 
 `Tools > Export Debug Bundle...` (`Ctrl+Shift+D`) always exports the

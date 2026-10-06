@@ -1,6 +1,6 @@
 {
-  "core": "e94a2b19b09bf69b084311bd0bec93b868cd94a9",
-  "frontend": "a757c9abac54d3815403b99e763e22fa2656ce1f",
+  "core": "a2d88905c11d4040baefd93f38e115a4ea6b2dd0",
+  "frontend": "095ec56d301b4af89475c9c56e07f13b5a766d29",
   "authd": "4053607356dd89e621740388f7ec761e27ecee58",
   "ebiten": "4701562e10e0a227e517965c6b8e587dc2ab66eb"
 }
