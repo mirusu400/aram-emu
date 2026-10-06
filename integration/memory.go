@@ -158,16 +158,20 @@ func (backend *Backend) memorySnapshotLocked(status string) (frontend.ToolSnapsh
 	if err != nil && !errors.Is(err, cheat.ErrScanNotStarted) {
 		return snapshot, err
 	}
+	// A page read failure is reported with the controls intact, so the user
+	// can still page away or start a new search.
+	var pageErr error
 	if err == nil {
 		model.Active, model.Type, model.Total = true, memoryTypes[int(summary.Type)], summary.Total
 		if state.offset >= summary.Total {
 			state.offset = max(0, ((summary.Total-1)/memoryPageSize)*memoryPageSize)
 		}
+		model.Offset = state.offset
 		page, err := engine.ScanPage(state.offset, memoryPageSize)
 		if err != nil {
-			return snapshot, err
+			pageErr = err
+			model.Status = "The current result page is not readable: " + err.Error()
 		}
-		model.Offset = page.Offset
 		for _, match := range page.Matches {
 			model.Results = append(model.Results, memoryResult(engine, match))
 		}
@@ -177,7 +181,9 @@ func (backend *Backend) memorySnapshotLocked(status string) (frontend.ToolSnapsh
 		value, err := engine.Read(state.selected.Address, valueType)
 		if err != nil {
 			state.selected = nil
-			model.Status = "The selected address is no longer readable: " + err.Error()
+			if pageErr == nil {
+				model.Status = "The selected address is no longer readable: " + err.Error()
+			}
 		} else {
 			selected := memoryResult(engine, cheat.Match{Address: state.selected.Address, Region: state.selected.Region, Value: value})
 			state.selected = &selected
@@ -214,7 +220,7 @@ func (backend *Backend) memorySnapshotLocked(status string) (frontend.ToolSnapsh
 		{ID: "reset", Label: "New search", Enabled: true},
 	}
 	snapshot.Memory = model
-	return snapshot, nil
+	return snapshot, pageErr
 }
 
 func memoryResult(engine *cheat.Engine, match cheat.Match) frontend.MemoryResult {

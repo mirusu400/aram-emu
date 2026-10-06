@@ -69,7 +69,9 @@ bounded by `MaxScanBytes` (128MiB by default), and each page is capped at 256.
 Legacy materialized APIs retain `MaxResults` (2,000,000 by default) and their
 previous-value semantics. A 32MiB u32 unknown scan retains 8,388,608 candidates
 using a 32MiB snapshot plus a 1MiB bitmap; refinement temporarily needs both
-the previous and new snapshots and bitmaps.
+the previous and new snapshots and bitmaps. A region left without candidates
+releases its snapshot and is not read again. A result page that cannot be read
+is reported with the search controls kept, so New search remains available.
 
 ## Debug export
 

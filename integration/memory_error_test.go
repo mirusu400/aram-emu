@@ -75,8 +75,17 @@ func TestMemoryProductReadOnlyErrorsAndInputValidation(t *testing.T) {
 		}
 	}
 	memory.failRead = true
-	if _, err := backend.ToolSnapshot(context.Background(), frontend.ToolMemory); err == nil {
+	failed, err := backend.ToolSnapshot(context.Background(), frontend.ToolMemory)
+	if err == nil {
 		t.Fatal("read error was hidden")
+	}
+	// The search controls stay available so the user can start over.
+	if failed.Memory == nil || failed.Memory.Status == "" || len(failed.Fields) == 0 || len(failed.Actions) == 0 {
+		t.Fatalf("read error removed the search controls: %+v", failed)
+	}
+	cleared := memoryAction(t, backend, failed, "reset", nil)
+	if cleared.Memory.Active {
+		t.Fatal("new search kept the unreadable session")
 	}
 }
 
