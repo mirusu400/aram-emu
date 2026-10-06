@@ -532,6 +532,9 @@ func (backend *Backend) ExecuteCommand(
 		err = machine.Start(ctx)
 		if err == nil {
 			backend.setRunRequested(machineCanContinue(machine.State()))
+			if !machineCanContinue(machine.State()) {
+				backend.invalidateMemoryTool()
+			}
 		}
 	case frontend.CommandPauseResume:
 		if backend.runningRequested() {
@@ -555,6 +558,9 @@ func (backend *Backend) ExecuteCommand(
 		err = errors.Join(persistErr, machine.Reset(ctx))
 	case frontend.CommandFrame:
 		err = machine.StepFrame(ctx)
+		if err == nil && !machineCanContinue(machine.State()) {
+			backend.invalidateMemoryTool()
+		}
 	case frontend.CommandSaveState:
 		err = backend.saveState(request.Slot)
 	case frontend.CommandLoadState:

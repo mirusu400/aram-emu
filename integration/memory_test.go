@@ -227,6 +227,54 @@ func TestMemoryLifecycleRejectsStaleRequestsAndResetsBaseline(t *testing.T) {
 	}
 }
 
+func TestMemoryGuestExitInvalidatesSearchAndSelection(t *testing.T) {
+	for _, command := range []frontend.BackendCommand{frontend.CommandFrame, frontend.CommandStart} {
+		t.Run(string(command), func(t *testing.T) {
+			factory := application.NewFactory()
+			factory.RunBudget, factory.FrameRunBudget = 1, 4
+			if command == frontend.CommandStart {
+				factory.RunBudget = 4
+			}
+			backend := NewBackend(factory)
+			backend.cheatStore.cacheRoot = t.TempDir()
+			t.Cleanup(func() { _ = backend.Close() })
+			data := append(syntheticEADS()[:0xb0], []byte{0x00, 0xb5, 0x00, 0xbd}...)
+			binary.LittleEndian.PutUint32(data[0x90:], 4)
+			if _, err := backend.Open(context.Background(), frontend.OpenRequest{Data: data, DisplayName: "exit.dat"}); err != nil {
+				t.Fatal(err)
+			}
+			snapshot, err := backend.ToolSnapshot(context.Background(), frontend.ToolMemory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot = memoryAction(t, backend, snapshot, "scan", map[string]string{"type": "u32", "comparison": "unknown", "region": "image.data"})
+			snapshot = memoryAction(t, backend, snapshot, "select", map[string]string{"address": "0x03000000"})
+			for frame := 0; frame < 3 && backend.State() != frontend.StateStopped; frame++ {
+				if err := backend.Execute(context.Background(), command); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if backend.State() != frontend.StateStopped {
+				t.Fatalf("synthetic guest did not exit: %s", backend.State())
+			}
+			current, err := backend.ToolSnapshot(context.Background(), frontend.ToolMemory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if current.Session == snapshot.Session || current.Memory.Active || current.Memory.Selected != nil {
+				t.Fatalf("guest exit retained its memory session: %+v", current)
+			}
+			_, err = backend.ExecuteToolAction(context.Background(), frontend.ToolRequest{
+				Kind: frontend.ToolMemory, Session: snapshot.Session, Action: "write",
+				Fields: map[string]string{"address": "0x03000000", "expected": snapshot.Memory.Selected.Expected, "new_value": "1"},
+			})
+			if !errors.Is(err, errMemorySessionChanged) {
+				t.Fatalf("exited guest accepted stale write: %v", err)
+			}
+		})
+	}
+}
+
 func TestMemoryRequestsSerializeWithFrames(t *testing.T) {
 	backend := memoryCounterBackend(t)
 	snapshot, _ := backend.ToolSnapshot(context.Background(), frontend.ToolMemory)
