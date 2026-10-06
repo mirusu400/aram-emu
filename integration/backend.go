@@ -62,6 +62,9 @@ type Backend struct {
 	cheatCatalogSource string
 	cheatIdentity      string
 	cheatApplyWarning  string
+	// Protected by operationMu, together with guest execution and lifecycle.
+	memorySession uint64
+	memoryTool    memoryToolState
 	// Experimental guest framebuffer override (widescreen). Zero keeps the
 	// device-native geometry. Applied when the next machine is created.
 	displayWidth  int
@@ -214,6 +217,7 @@ func (backend *Backend) OpenWithProgress(
 	backend.lastPresentation = 0
 	backend.frameSequence = 0
 	backend.cheats = library
+	backend.invalidateMemoryTool()
 	backend.cheatUnavailable = cheatUnavailable
 	backend.cheatImported = false
 	backend.cheatCatalogSource = ""
@@ -513,6 +517,7 @@ func (backend *Backend) ExecuteCommand(
 	switch request.Command {
 	case frontend.CommandStart:
 		if machine.State() == aramcore.StateStopped {
+			backend.invalidateMemoryTool()
 			// The guest ended (for example a first-run Clet's MC_knlExit).
 			// Re-bootstrap it — preserving the title's writable storage — so
 			// Start restarts an exited title instead of doing nothing. The
@@ -527,6 +532,9 @@ func (backend *Backend) ExecuteCommand(
 		err = machine.Start(ctx)
 		if err == nil {
 			backend.setRunRequested(machineCanContinue(machine.State()))
+			if !machineCanContinue(machine.State()) {
+				backend.invalidateMemoryTool()
+			}
 		}
 	case frontend.CommandPauseResume:
 		if backend.runningRequested() {
@@ -535,6 +543,7 @@ func (backend *Backend) ExecuteCommand(
 			backend.setRunRequested(machineCanContinue(machine.State()))
 		}
 	case frontend.CommandStop:
+		backend.invalidateMemoryTool()
 		backend.setRunRequested(false)
 		err = machine.Stop()
 		if err == nil {
@@ -542,15 +551,20 @@ func (backend *Backend) ExecuteCommand(
 		}
 	case frontend.CommandReset:
 		backend.setRunRequested(false)
+		backend.invalidateMemoryTool()
 		// Capture the current writable storage before the reset re-bootstraps
 		// the guest, so a save written this run is not lost on restart.
 		persistErr := backend.persistSaveData(machine, backend.currentInputHash())
 		err = errors.Join(persistErr, machine.Reset(ctx))
 	case frontend.CommandFrame:
 		err = machine.StepFrame(ctx)
+		if err == nil && !machineCanContinue(machine.State()) {
+			backend.invalidateMemoryTool()
+		}
 	case frontend.CommandSaveState:
 		err = backend.saveState(request.Slot)
 	case frontend.CommandLoadState:
+		backend.invalidateMemoryTool()
 		// Preserve the play intent across a load so a mid-game quick-load
 		// resumes from the restored slot instead of forcing a pause. Core
 		// LoadState rejects a bad slot before mutating, so on failure the
@@ -590,6 +604,7 @@ func (backend *Backend) RunFrame(ctx context.Context) error {
 		return backendError(classifyMachineError(machine, err), err)
 	}
 	if !machineCanContinue(machine.State()) {
+		backend.invalidateMemoryTool()
 		backend.setRunRequested(false)
 		// The guest ended (for example a Clet called MC_knlExit); flush its
 		// writable storage so the next launch reloads the save.
@@ -864,6 +879,8 @@ func (backend *Backend) ToolSnapshot(
 		}, nil
 	case frontend.ToolCheats:
 		return backend.cheatSnapshot(ctx, false, "")
+	case frontend.ToolMemory:
+		return backend.memorySnapshot(ctx)
 	case frontend.ToolDebugger:
 		machine := backend.currentMachine()
 		if machine == nil {
@@ -904,6 +921,8 @@ func (backend *Backend) ExecuteToolAction(
 	switch request.Kind {
 	case frontend.ToolCheats:
 		return backend.executeCheatAction(ctx, request)
+	case frontend.ToolMemory:
+		return backend.executeMemoryAction(ctx, request)
 	default:
 		return frontend.ToolSnapshot{}, fmt.Errorf(
 			"aram-core does not expose %s actions yet",
@@ -930,6 +949,7 @@ func (backend *Backend) Close() error {
 	backend.lastPresentation = 0
 	backend.frameSequence = 0
 	backend.cheats = nil
+	backend.invalidateMemoryTool()
 	backend.cheatUnavailable = ""
 	backend.cheatImported = false
 	backend.cheatCatalogSource = ""
