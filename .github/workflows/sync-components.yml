@@ -68,6 +68,8 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.changed == 'true'
     uses: ./.github/workflows/workspace-gate.yml
+    secrets:
+      ARAM_TEST_DEPLOY_KEY: ${{ secrets.ARAM_TEST_DEPLOY_KEY }}
     with:
       product_sha: ${{ needs.prepare.outputs.product_sha }}
       core_sha: ${{ needs.prepare.outputs.core_sha }}

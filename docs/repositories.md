@@ -58,3 +58,15 @@ still equals the tested product revision; concurrent product changes require a
 new validation. Both Nightly and stable publication also require this gate for
 the exact revisions used to package the artifacts. Privacy-safe compatibility
 reports remain workflow artifacts, separate from the downloadable release.
+
+The `aram-test` repository is private. Add a dedicated, read-only deploy key
+to that repository and store its private key in the `aram-emu` Actions secret
+`ARAM_TEST_DEPLOY_KEY`. Both build and component-sync workflows explicitly pass
+only that secret to the reusable gate. Checkout does not persist credentials;
+the key grants no access to other repositories and cannot push test-runner changes.
+To rotate it, register the new public key on `aram-test`, update the secret,
+verify a complete gate run, then remove the old deploy key.
+
+Fork pull requests run the public platform checks without the private runner
+credential. The complete private-runner gate runs for same-repository pull requests,
+branch builds, and releases, and is mandatory before promotion or publication.
