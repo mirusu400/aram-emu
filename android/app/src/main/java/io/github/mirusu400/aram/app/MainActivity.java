@@ -815,6 +815,7 @@ public final class MainActivity extends Activity
         if (adMobController != null) {
             adMobController.onResume();
         }
+        Mobile.audioFocus(false);
         if (gameView != null) {
             gameView.resumeGame();
             gameView.requestFocus();
@@ -828,12 +829,13 @@ public final class MainActivity extends Activity
         if (adMobController != null) {
             adMobController.onPause();
         }
-        Mobile.pause();
         Mobile.audioFocus(false);
         abandonAudioFocus();
         if (gameView != null) {
             gameView.suspendGame();
         }
+        // Suspend the output before pause waits for an in-flight frame or save.
+        Mobile.pause();
         super.onPause();
     }
 

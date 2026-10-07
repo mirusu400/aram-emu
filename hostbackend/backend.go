@@ -14,6 +14,7 @@ package hostbackend
 import (
 	"context"
 	"errors"
+	"time"
 
 	aramcore "github.com/mirusu400/aram-core/core"
 	"github.com/mirusu400/aram-emu/integration"
@@ -201,6 +202,18 @@ func (b *Backend) RunFrame(ctx context.Context) error {
 		return target.RunFrame(ctx)
 	}
 	return nil
+}
+
+// FrameQuantum preserves the active machine's guest-time pacing contract.
+// Audio production follows guest time, so dropping this optional interface at
+// the router would starve a 16 ms machine paced at the shell's 60 Hz fallback.
+func (b *Backend) FrameQuantum() time.Duration {
+	if target, ok := b.active.(frontend.FrameQuantumBackend); ok {
+		if quantum := target.FrameQuantum(); quantum > 0 {
+			return quantum
+		}
+	}
+	return time.Second / 60
 }
 
 func (b *Backend) QueueInput(event frontend.InputEvent) error {

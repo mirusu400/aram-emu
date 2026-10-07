@@ -262,7 +262,7 @@ func Resume() {
 
 // AudioFocus mirrors Android audio focus callbacks.
 func AudioFocus(active bool) {
-	game.instance().SetHostActive(active)
+	game.instance().SetAudioFocus(active)
 }
 
 // Dummy forces gomobile/ebitenmobile to bind this package.

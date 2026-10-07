@@ -73,6 +73,34 @@ the previous and new snapshots and bitmaps. A region left without candidates
 releases its snapshot and is not read again. A result page that cannot be read
 is reported with the search controls kept, so New search remains available.
 
+## Audio continuity and latency
+
+Audio settings offer Responsive (20 ms), Balanced (60 ms), Stable (120 ms),
+and a custom latency slider. These are buffering requests; operating-system
+and device buffering add to the delay. Buffer health distinguishes frontend
+queue fill from estimated player read-ahead and retains cumulative underrun,
+overrun, and discarded-audio counters across playback resets. The audio trace
+is included in the debug bundle.
+
+Pause, reset, rewind, state loading, and title changes retire the previous
+player and its queued PCM before accepting a new audio generation.
+Guest mute can signal that generation change with a one-shot empty PCM chunk,
+so already-transferred audio is retired even without replacement sound. Native
+foreground state and audio focus are independent: playback resumes only when
+both permit it. Android suspends audio before waiting for frame completion or
+save persistence during backgrounding.
+
+Adapters preserve the active machine's frame quantum. PCM carries its creation
+time even when consumption is delayed, and sample-rate conversion carries its
+fractional cursor across chunks. Long SMAF/MIDI scores loop and complete at
+their natural rendered end; preparing a score avoids walking every sample of
+the full song on the first play. Changing an inactive effect's gain preserves
+the existing music output.
+
+Concurrent clips mix automatically. The saved legacy mixing preference remains
+readable for settings compatibility; it does not select a different mixing
+policy. Title-specific playback corrections are selected by the core.
+
 ## Debug export
 
 `Tools > Export Debug Bundle...` (`Ctrl+Shift+D`) always exports the

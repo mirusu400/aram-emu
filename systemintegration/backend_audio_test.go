@@ -53,3 +53,19 @@ func TestBackendAudioIsOptionalForLegacySystemMachines(t *testing.T) {
 		t.Fatalf("legacy machine returned %d samples", len(chunk.PCM16))
 	}
 }
+
+func TestBackendPreservesSilentGenerationMarkers(t *testing.T) {
+	machine := &audioSystemMachine{
+		fakeSystemMachine: newFakeSystemMachine(),
+		audio:             aramcore.AudioChunk{SampleRate: 44100, Channels: 1, StartGuestNS: 100_000_000, Generation: 7},
+	}
+	backend := NewBackend(Options{})
+	backend.machine = machine
+	chunk := backend.DrainAudio()
+	if len(chunk.PCM16) != 0 || chunk.Generation != 7 || chunk.StartGuestNS != 100_000_000 {
+		t.Fatalf("silent generation marker = %+v", chunk)
+	}
+	if next := backend.DrainAudio(); next.Generation != 0 {
+		t.Fatalf("generation marker was duplicated: %+v", next)
+	}
+}

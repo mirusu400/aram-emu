@@ -180,7 +180,7 @@ func run() int {
 	audioMode := flag.String(
 		"audio-mode",
 		"faithful",
-		"audio policy: faithful or mix",
+		"legacy audio preference: faithful or mix (both mix concurrent clips)",
 	)
 	traceMode := flag.String(
 		"trace-mode",
