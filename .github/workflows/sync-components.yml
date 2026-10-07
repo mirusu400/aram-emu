@@ -44,11 +44,13 @@ jobs:
         run: |
           core_sha="$(gh api repos/mirusu400/aram-core/commits/nightly --jq '.sha')"
           frontend_sha="$(gh api repos/mirusu400/aram-frontend/commits/nightly --jq '.sha')"
+          core_main="$(gh api repos/mirusu400/aram-core/commits/main --jq '.sha')"
+          frontend_main="$(gh api repos/mirusu400/aram-frontend/commits/main --jq '.sha')"
           current_core="$(jq -er '.core' product-components.json)"
           current_frontend="$(jq -er '.frontend' product-components.json)"
           authd_sha="$(jq -er '.authd' product-components.json)"
           test_runner_sha="$(jq -er '.test_runner' product-components.json)"
-          for revision in "${core_sha}" "${frontend_sha}" "${authd_sha}" "${test_runner_sha}"; do
+          for revision in "${core_sha}" "${frontend_sha}" "${core_main}" "${frontend_main}" "${authd_sha}" "${test_runner_sha}"; do
             [[ "${revision}" =~ ^[0-9a-f]{40}$ ]]
           done
           echo "product_sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
@@ -56,6 +58,12 @@ jobs:
           echo "frontend_sha=${frontend_sha}" >> "${GITHUB_OUTPUT}"
           echo "authd_sha=${authd_sha}" >> "${GITHUB_OUTPUT}"
           echo "test_runner_sha=${test_runner_sha}" >> "${GITHUB_OUTPUT}"
+          if [[ "${core_sha}" != "${core_main}" ||
+                "${frontend_sha}" != "${frontend_main}" ]]; then
+            echo "Nightly publication is behind component main; retry after publication."
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
           if [[ "${core_sha}" == "${current_core}" &&
                 "${frontend_sha}" == "${current_frontend}" ]]; then
             echo "changed=false" >> "${GITHUB_OUTPUT}"

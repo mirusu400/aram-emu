@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import promote_components
 
@@ -38,6 +39,12 @@ class ComponentPromotionTest(unittest.TestCase):
         self.git(self.seed, "push", "origin", "HEAD:main")
         self.git(self.root, "clone", "--branch", "main", str(self.remote), str(self.product))
         self.configure(self.product)
+        heads = patch.object(
+            promote_components, "component_main_heads",
+            return_value={"core": "a" * 40, "frontend": "b" * 40},
+        )
+        heads.start()
+        self.addCleanup(heads.stop)
 
     @staticmethod
     def git(root, *arguments):
@@ -86,9 +93,25 @@ class ComponentPromotionTest(unittest.TestCase):
         self.assertEqual(self.git(self.product, "rev-parse", "HEAD"), self.baseline)
         self.assertEqual(self.git(self.product, "status", "--porcelain"), "")
 
-    def test_push_race_cannot_overwrite_a_new_main(self):
-        from unittest.mock import patch
+    def test_component_change_during_validation_requires_a_new_gate(self):
+        with patch.object(promote_components, "component_main_heads", return_value={
+            "core": "a" * 40, "frontend": "c" * 40,
+        }):
+            self.assertIsNone(self.promote())
+        self.assertEqual(self.git(self.remote, "rev-parse", "refs/heads/main"), self.baseline)
+        self.assertEqual(self.git(self.product, "status", "--porcelain"), "")
 
+    def test_lagging_nightly_cannot_replace_current_component_pins(self):
+        self.assertIsNone(promote_components.promote(
+            self.product, self.baseline, "a" * 40, self.manifest["frontend"],
+        ))
+        self.assertEqual(self.git(self.remote, "rev-parse", "refs/heads/main"), self.baseline)
+        self.assertEqual(
+            json.loads((self.product / "product-components.json").read_text()),
+            self.manifest,
+        )
+
+    def test_push_race_cannot_overwrite_a_new_main(self):
         original_git = promote_components.git
         concurrent = []
 

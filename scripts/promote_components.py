@@ -19,6 +19,20 @@ def git(repository: Path, *arguments: str) -> str:
     return result.stdout.strip()
 
 
+def component_main_heads(repository: Path) -> dict[str, str]:
+    heads = {}
+    for component in ("core", "frontend"):
+        result = git(
+            repository, "ls-remote",
+            f"https://github.com/mirusu400/aram-{component}.git", "refs/heads/main",
+        )
+        fields = result.split()
+        if len(fields) != 2 or re.fullmatch(r"[0-9a-f]{40}", fields[0]) is None:
+            raise ValueError(f"cannot resolve current {component} main")
+        heads[component] = fields[0]
+    return heads
+
+
 def promote(repository: Path, baseline: str, core: str, frontend: str) -> str | None:
     for revision in (baseline, core, frontend):
         if re.fullmatch(r"[0-9a-f]{40}", revision) is None:
@@ -31,6 +45,10 @@ def promote(repository: Path, baseline: str, core: str, frontend: str) -> str | 
     git(repository, "fetch", "origin", "main")
     if git(repository, "rev-parse", "refs/remotes/origin/main") != baseline:
         print("main changed during validation; the next sync must validate it again")
+        return None
+
+    if component_main_heads(repository) != {"core": core, "frontend": frontend}:
+        print("component main changed during validation; the next sync must retry")
         return None
 
     manifest_path = repository / "product-components.json"
