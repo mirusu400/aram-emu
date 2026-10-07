@@ -1,6 +1,7 @@
 package io.github.mirusu400.aram.app;
 
 import android.app.Activity;
+import android.hardware.input.InputManager;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -14,7 +15,8 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.Space;
 
-import java.util.Objects;
+import java.util.ArrayList;
+import java.util.List;
 
 import io.github.mirusu400.aram.mobile.Mobile;
 
@@ -30,16 +32,35 @@ import io.github.mirusu400.aram.mobile.Mobile;
  * is indistinguishable from a press on the built-in touch layout.
  */
 public final class KeypadActivity extends Activity {
-    // The direction currently held on each hat axis, so a change or a return
-    // to center releases the previous one exactly once.
-    private String heldHatX;
-    private String heldHatY;
+    private static final int TOUCH_DEVICE = Integer.MIN_VALUE;
+    private final HeldControls heldControls = new HeldControls(Mobile::pressControl);
+    private final List<Button> buttons = new ArrayList<>();
+    private InputManager inputManager;
+    private InputManager.InputDeviceListener inputListener;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(buildKeypad());
+        inputManager = (InputManager) getSystemService(INPUT_SERVICE);
+        if (inputManager != null) {
+            inputListener = new InputManager.InputDeviceListener() {
+                @Override
+                public void onInputDeviceAdded(int deviceId) {}
+
+                @Override
+                public void onInputDeviceRemoved(int deviceId) {
+                    heldControls.releaseDevice(deviceId);
+                }
+
+                @Override
+                public void onInputDeviceChanged(int deviceId) {
+                    heldControls.releaseDevice(deviceId);
+                }
+            };
+            inputManager.registerInputDeviceListener(inputListener, null);
+        }
     }
 
     @Override
@@ -47,6 +68,35 @@ public final class KeypadActivity extends Activity {
         super.onResume();
         // The panel is showing, so the game panel drops its on-screen deck.
         Mobile.setSecondaryKeypadActive(true);
+    }
+
+    @Override
+    protected void onPause() {
+        releaseInputs();
+        Mobile.setSecondaryKeypadActive(false);
+        super.onPause();
+    }
+
+    @Override
+    protected void onStop() {
+        releaseInputs();
+        Mobile.setSecondaryKeypadActive(false);
+        super.onStop();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus) {
+            releaseInputs();
+        }
+    }
+
+    private void releaseInputs() {
+        heldControls.releaseAll();
+        for (Button button : buttons) {
+            button.setPressed(false);
+        }
     }
 
     // The handset's physical gamepad is not tied to a display, so Android
@@ -61,9 +111,15 @@ public final class KeypadActivity extends Activity {
         String control = controlForKeyCode(event.getKeyCode());
         if (control != null && isFromGamepad(event)) {
             if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                Mobile.pressControl(control, true);
+                heldControls.update(
+                        "key:" + event.getDeviceId() + ":" + event.getKeyCode(),
+                        event.getDeviceId(), control
+                );
             } else if (event.getAction() == KeyEvent.ACTION_UP) {
-                Mobile.pressControl(control, false);
+                heldControls.update(
+                        "key:" + event.getDeviceId() + ":" + event.getKeyCode(),
+                        event.getDeviceId(), null
+                );
             }
             return true;
         }
@@ -75,6 +131,7 @@ public final class KeypadActivity extends Activity {
         if (isFromGamepad(event)
                 && event.getActionMasked() == MotionEvent.ACTION_MOVE) {
             updateHat(
+                    event.getDeviceId(),
                     event.getAxisValue(MotionEvent.AXIS_HAT_X),
                     event.getAxisValue(MotionEvent.AXIS_HAT_Y)
             );
@@ -86,27 +143,11 @@ public final class KeypadActivity extends Activity {
     // Many retro handhelds report their d-pad as a hat axis rather than as key
     // events. The axis carries no press/release, so the last direction is held
     // until the value returns to center, and a change releases the old one.
-    private void updateHat(float hatX, float hatY) {
+    private void updateHat(int deviceId, float hatX, float hatY) {
         String nextX = hatX < -0.5f ? "left" : hatX > 0.5f ? "right" : null;
         String nextY = hatY < -0.5f ? "up" : hatY > 0.5f ? "down" : null;
-        if (!Objects.equals(nextX, heldHatX)) {
-            if (heldHatX != null) {
-                Mobile.pressControl(heldHatX, false);
-            }
-            if (nextX != null) {
-                Mobile.pressControl(nextX, true);
-            }
-            heldHatX = nextX;
-        }
-        if (!Objects.equals(nextY, heldHatY)) {
-            if (heldHatY != null) {
-                Mobile.pressControl(heldHatY, false);
-            }
-            if (nextY != null) {
-                Mobile.pressControl(nextY, true);
-            }
-            heldHatY = nextY;
-        }
+        heldControls.update("hat:" + deviceId + ":x", deviceId, nextX);
+        heldControls.update("hat:" + deviceId + ":y", deviceId, nextY);
     }
 
     private static boolean isFromGamepad(KeyEvent event) {
@@ -156,6 +197,10 @@ public final class KeypadActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        releaseInputs();
+        if (inputManager != null && inputListener != null) {
+            inputManager.unregisterInputDeviceListener(inputListener);
+        }
         // The keypad is gone; let the game panel bring its own deck back so the
         // controls are never left unreachable.
         Mobile.setSecondaryKeypadActive(false);
@@ -237,6 +282,7 @@ public final class KeypadActivity extends Activity {
     // held for as long as the finger is down, matching the on-screen deck.
     private View control(String label, String control) {
         Button button = new Button(this);
+        buttons.add(button);
         button.setText(label);
         button.setAllCaps(false);
         int margin = dp(3);
@@ -244,12 +290,12 @@ public final class KeypadActivity extends Activity {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     view.setPressed(true);
-                    Mobile.pressControl(control, true);
+                    heldControls.update(view, TOUCH_DEVICE, control);
                     return true;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
                     view.setPressed(false);
-                    Mobile.pressControl(control, false);
+                    heldControls.update(view, TOUCH_DEVICE, null);
                     return true;
                 default:
                     return false;

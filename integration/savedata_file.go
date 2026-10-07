@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/mirusu400/aram-emu/internal/savefile"
 )
 
 // saveDataFileFor returns the per-title save-data path, keyed by input SHA-256
@@ -37,7 +39,7 @@ func (backend *Backend) readSaveData(hash string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve game save path: %w", err)
 	}
-	data, err := os.ReadFile(path)
+	data, err := savefile.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -52,11 +54,11 @@ func (backend *Backend) writeSaveDataBlob(hash string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("resolve game save path: %w", err)
 	}
-	temporary := path + ".tmp"
-	file, err := os.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	file, err := os.CreateTemp(filepath.Dir(path), "savedata-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create temporary game save: %w", err)
 	}
+	temporary := file.Name()
 	committed := false
 	defer func() {
 		if !committed {

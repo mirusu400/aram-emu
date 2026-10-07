@@ -18,6 +18,7 @@ import (
 	aramcore "github.com/mirusu400/aram-core/core"
 	"github.com/mirusu400/aram-core/loader"
 	"github.com/mirusu400/aram-emu/carrier"
+	"github.com/mirusu400/aram-emu/internal/savefile"
 )
 
 const (
@@ -288,10 +289,14 @@ func (c *Core) Unload() error {
 	if c.machine.State() == aramcore.StateRunning {
 		if err := c.machine.Pause(); err != nil {
 			errs = append(errs, err)
+		} else {
+			c.started = false
 		}
 	}
 	if err := c.persistSaveData(); err != nil {
 		errs = append(errs, err)
+		// Retain the loaded machine and save identity so unloading can be retried.
+		return errors.Join(errs...)
 	}
 	errs = append(errs, c.machine.Close())
 	c.machine = nil
@@ -397,7 +402,7 @@ func (c *Core) loadPersistentData() error {
 	if path == "" {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := savefile.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -454,11 +459,8 @@ func (c *Core) persistSaveData() error {
 	if err := temporary.Close(); err != nil {
 		return fmt.Errorf("close persistent save: %w", err)
 	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		_ = os.Remove(path)
-		if retryErr := os.Rename(temporaryPath, path); retryErr != nil {
-			return fmt.Errorf("replace persistent save after %v: %w", err, retryErr)
-		}
+	if err := savefile.Replace(temporaryPath, path); err != nil {
+		return fmt.Errorf("replace persistent save: %w", err)
 	}
 	committed = true
 	return nil

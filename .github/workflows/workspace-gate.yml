@@ -1,0 +1,168 @@
+name: synthetic workspace gate
+
+on:
+  workflow_call:
+    inputs:
+      product_sha:
+        required: true
+        type: string
+      core_sha:
+        required: true
+        type: string
+      frontend_sha:
+        required: true
+        type: string
+      authd_sha:
+        required: true
+        type: string
+      test_runner_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOWORK: ${{ github.workspace }}/aram-emu/go.work
+      ARAM_REFERENCE_REPO: ""
+      ARAM_TEST_DATA: ""
+      ARAM_CORE_ROOT: ""
+    steps:
+      - name: Require immutable component revisions
+        shell: bash
+        env:
+          PRODUCT_SHA: ${{ inputs.product_sha }}
+          CORE_SHA: ${{ inputs.core_sha }}
+          FRONTEND_SHA: ${{ inputs.frontend_sha }}
+          AUTHD_SHA: ${{ inputs.authd_sha }}
+          TEST_RUNNER_SHA: ${{ inputs.test_runner_sha }}
+        run: |
+          for revision in "${PRODUCT_SHA}" "${CORE_SHA}" "${FRONTEND_SHA}" \
+              "${AUTHD_SHA}" "${TEST_RUNNER_SHA}"; do
+            [[ "${revision}" =~ ^[0-9a-f]{40}$ ]]
+          done
+
+      - name: Check out product
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.product_sha }}
+          path: aram-emu
+          persist-credentials: false
+
+      - name: Check out core
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-core
+          ref: ${{ inputs.core_sha }}
+          path: aram-core
+          persist-credentials: false
+
+      - name: Check out frontend
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-frontend
+          ref: ${{ inputs.frontend_sha }}
+          path: aram-frontend
+          persist-credentials: false
+
+      - name: Check out authd
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-authd
+          ref: ${{ inputs.authd_sha }}
+          path: aram-authd
+          persist-credentials: false
+
+      - name: Check out test runner
+        uses: actions/checkout@v6
+        with:
+          repository: mirusu400/aram-test
+          ref: ${{ inputs.test_runner_sha }}
+          path: aram-test
+          persist-credentials: false
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: aram-emu/go.mod
+          cache-dependency-path: |
+            aram-emu/go.sum
+            aram-emu/go.work.sum
+            aram-core/go.sum
+            aram-frontend/go.sum
+            aram-authd/go.sum
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libc6-dev libgl1-mesa-dev libxcursor-dev libxi-dev \
+            libxinerama-dev libxrandr-dev libxxf86vm-dev \
+            libasound2-dev pkg-config xvfb
+
+      # Keep the ownership checks ordered, before the complete black-box authority.
+      - name: Core tests and vet
+        working-directory: aram-core
+        run: |
+          go test -count=1 ./...
+          go vet ./...
+
+      - name: Test runner unit tests
+        working-directory: aram-test
+        run: python -m unittest discover -s . -p 'test_*.py'
+
+      - name: Frontend tests and vet
+        working-directory: aram-frontend
+        run: |
+          xvfb-run -a go test -count=1 ./...
+          go vet ./...
+
+      - name: Integration tests and vet
+        working-directory: aram-emu
+        run: |
+          xvfb-run -a go test -count=1 ./...
+          go vet ./...
+          python -m unittest discover -s scripts -p 'test_*.py'
+
+      - name: Complete synthetic compatibility gate
+        working-directory: aram-test
+        # Includes the runner's regression gate and checked-in SDK examples.
+        # No archive fetch, private corpus, cached results, or skipped gates.
+        run: xvfb-run -a python run_suite.py all --force --jobs 4 --slices 4096
+
+      - name: Require passing reports
+        working-directory: aram-test
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          root = Path("build/aram-suite")
+          report = json.loads((root / "report.json").read_text(encoding="utf-8"))
+          delta = json.loads((root / "delta.json").read_text(encoding="utf-8"))
+          assert report["synthetic_gate"]["passed"] > 0, "synthetic gate had no passing inputs"
+          assert report["synthetic_gate"]["failed"] == 0, "synthetic compatibility failed"
+          assert delta["counts"].get("regressed", 0) == 0, "compatibility regressed"
+          print((root / "delta.md").read_text(encoding="utf-8"))
+          print((root / "triage.md").read_text(encoding="utf-8"))
+
+      - name: Upload privacy-safe compatibility reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: synthetic-compatibility
+          path: |
+            aram-test/build/aram-suite/report.json
+            aram-test/build/aram-suite/report.md
+            aram-test/build/aram-suite/delta.json
+            aram-test/build/aram-suite/delta.md
+            aram-test/build/aram-suite/triage.json
+            aram-test/build/aram-suite/triage.md
+          if-no-files-found: warn
+          retention-days: 14

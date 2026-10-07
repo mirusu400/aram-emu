@@ -5,7 +5,7 @@ on:
     tags:
       - "component-updated/**"
   schedule:
-    # Pull-based fallback in case a component notification is missed.
+    # Pull-based fallback also retries candidates if main changes during validation.
     - cron: "*/5 * * * *"
   workflow_dispatch:
   repository_dispatch:
@@ -13,23 +13,30 @@ on:
       - component-updated
 
 permissions:
-  actions: write
-  contents: write
+  contents: read
 
 concurrency:
   group: sync-product-components
   cancel-in-progress: false
 
 jobs:
-  sync:
-    name: Sync successful component Nightlies
+  prepare:
+    name: Pin successful component Nightly candidates
     runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.components.outputs.changed }}
+      product_sha: ${{ steps.components.outputs.product_sha }}
+      core_sha: ${{ steps.components.outputs.core_sha }}
+      frontend_sha: ${{ steps.components.outputs.frontend_sha }}
+      authd_sha: ${{ steps.components.outputs.authd_sha }}
+      test_runner_sha: ${{ steps.components.outputs.test_runner_sha }}
     steps:
       - uses: actions/checkout@v6
         with:
           ref: main
+          persist-credentials: false
 
-      - name: Update the product component lock
+      - name: Resolve candidate revisions without changing main
         id: components
         env:
           GH_TOKEN: ${{ github.token }}
@@ -37,52 +44,95 @@ jobs:
         run: |
           core_sha="$(gh api repos/mirusu400/aram-core/commits/nightly --jq '.sha')"
           frontend_sha="$(gh api repos/mirusu400/aram-frontend/commits/nightly --jq '.sha')"
-          current_core="$(jq -r '.core' product-components.json)"
-          current_frontend="$(jq -r '.frontend' product-components.json)"
-
+          current_core="$(jq -er '.core' product-components.json)"
+          current_frontend="$(jq -er '.frontend' product-components.json)"
+          authd_sha="$(jq -er '.authd' product-components.json)"
+          test_runner_sha="$(jq -er '.test_runner' product-components.json)"
+          for revision in "${core_sha}" "${frontend_sha}" "${authd_sha}" "${test_runner_sha}"; do
+            [[ "${revision}" =~ ^[0-9a-f]{40}$ ]]
+          done
+          echo "product_sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
           echo "core_sha=${core_sha}" >> "${GITHUB_OUTPUT}"
           echo "frontend_sha=${frontend_sha}" >> "${GITHUB_OUTPUT}"
+          echo "authd_sha=${authd_sha}" >> "${GITHUB_OUTPUT}"
+          echo "test_runner_sha=${test_runner_sha}" >> "${GITHUB_OUTPUT}"
           if [[ "${core_sha}" == "${current_core}" &&
                 "${frontend_sha}" == "${current_frontend}" ]]; then
             echo "changed=false" >> "${GITHUB_OUTPUT}"
-            exit 0
+          else
+            echo "changed=true" >> "${GITHUB_OUTPUT}"
           fi
 
-          temporary="$(mktemp)"
-          jq \
-            --arg core "${core_sha}" \
-            --arg frontend "${frontend_sha}" \
-            '.core = $core | .frontend = $frontend' \
-            product-components.json > "${temporary}"
-          mv "${temporary}" product-components.json
-          echo "changed=true" >> "${GITHUB_OUTPUT}"
+  verify:
+    name: Verify exact candidate combination
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    uses: ./.github/workflows/workspace-gate.yml
+    with:
+      product_sha: ${{ needs.prepare.outputs.product_sha }}
+      core_sha: ${{ needs.prepare.outputs.core_sha }}
+      frontend_sha: ${{ needs.prepare.outputs.frontend_sha }}
+      authd_sha: ${{ needs.prepare.outputs.authd_sha }}
+      test_runner_sha: ${{ needs.prepare.outputs.test_runner_sha }}
 
-      - name: Commit the updated component lock
-        if: steps.components.outputs.changed == 'true'
+  promote:
+    name: Promote only the verified combination
+    needs:
+      - prepare
+      - verify
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.product_sha }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Commit verified pins only if main is still the tested revision
+        id: promotion
         env:
-          CORE_SHA: ${{ steps.components.outputs.core_sha }}
-          FRONTEND_SHA: ${{ steps.components.outputs.frontend_sha }}
+          PRODUCT_SHA: ${{ needs.prepare.outputs.product_sha }}
+          CORE_SHA: ${{ needs.prepare.outputs.core_sha }}
+          FRONTEND_SHA: ${{ needs.prepare.outputs.frontend_sha }}
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add product-components.json
-          git commit -m "chore: update product components" \
-            -m "aram-core: ${CORE_SHA}" \
-            -m "aram-frontend: ${FRONTEND_SHA}"
-          git push origin HEAD:main
+          python scripts/promote_components.py \
+            --baseline-sha "${PRODUCT_SHA}" \
+            --core-sha "${CORE_SHA}" \
+            --frontend-sha "${FRONTEND_SHA}"
 
-      - name: Build the updated integrated product
-        if: steps.components.outputs.changed == 'true'
+      # GITHUB_TOKEN pushes do not start build.yml; workflow_dispatch does.
+      # build.yml pins its own event SHA and gates publication again.
+      - name: Build the promoted integrated product
+        if: steps.promotion.outputs.promoted == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: gh workflow run build.yml --ref main
 
-      - name: Delete the component notification tag
-        if: >-
-          always() &&
-          github.event_name == 'push' &&
-          startsWith(github.ref, 'refs/tags/component-updated/')
-        shell: bash
+  cleanup:
+    name: Delete the consumed component notification tag
+    needs:
+      - prepare
+      - verify
+      - promote
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/component-updated/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - shell: bash
         run: git push origin --delete "${GITHUB_REF_NAME}"

@@ -73,8 +73,11 @@
   const boot = document.getElementById("boot");
   const status = document.getElementById("status");
   const spinner = document.getElementById("spinner");
+  let failed = false;
 
   function fail(message) {
+    failed = true;
+    boot.classList.remove("hidden");
     spinner.style.display = "none";
     status.className = "err";
     status.textContent = message;
@@ -94,6 +97,11 @@
   }
 
   const go = new Go();
+  const runtimeExit = go.exit;
+  go.exit = function (code) {
+    if (code !== 0) fail("ARAM stopped with exit code " + code + ". Reload the page to try again.");
+    runtimeExit.call(this, code);
+  };
   try {
     status.textContent = "Downloading aram.wasm…";
     const result = await WebAssembly.instantiateStreaming(
@@ -101,7 +109,9 @@
       go.importObject
     );
     // Reveal the Ebitengine canvas once the game loop takes over the frame.
-    requestAnimationFrame(() => requestAnimationFrame(() => boot.classList.add("hidden")));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!failed) boot.classList.add("hidden");
+    }));
     await go.run(result.instance);
   } catch (e) {
     fail("Failed to start: " + (e && e.message ? e.message : e));

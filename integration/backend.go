@@ -22,6 +22,7 @@ import (
 	"github.com/mirusu400/aram-core/loader"
 	"github.com/mirusu400/aram-core/runtime"
 	"github.com/mirusu400/aram-emu/internal/productconfig"
+	"github.com/mirusu400/aram-emu/internal/savefile"
 	"github.com/mirusu400/aram-frontend/frontend"
 )
 
@@ -196,6 +197,15 @@ func (backend *Backend) OpenWithProgress(
 	// Restore before publishing the replacement machine. If the save is
 	// unreadable, leave the currently loaded title intact and report the cause
 	// instead of silently starting the new title with empty progress.
+	if oldMachine := backend.currentMachine(); oldMachine != nil {
+		if err := backend.persistSaveData(oldMachine, backend.currentInputHash()); err != nil {
+			_ = machine.Close()
+			if sourceFile != nil {
+				_ = sourceFile.Close()
+			}
+			return info, backendError(frontend.FailureUnknown, fmt.Errorf("save current title before replacement: %w", err))
+		}
+	}
 	if err := backend.restoreSaveData(machine, info.SHA256); err != nil {
 		_ = machine.Close()
 		if sourceFile != nil {
@@ -935,10 +945,19 @@ func (backend *Backend) Close() error {
 	backend.operationMu.Lock()
 	defer backend.operationMu.Unlock()
 
-	backend.mu.Lock()
+	backend.mu.RLock()
 	machine := backend.machine
 	sourceFile := backend.sourceFile
 	closingHash := backend.input.SHA256
+	backend.mu.RUnlock()
+	if machine != nil {
+		// Keep the machine, input identity, and source open until saving succeeds
+		// so callers can fix the storage problem and retry Close or export a save.
+		if err := backend.persistSaveData(machine, closingHash); err != nil {
+			return err
+		}
+	}
+	backend.mu.Lock()
 	backend.machine = nil
 	backend.sourceFile = nil
 	backend.source = aramcore.Source{}
@@ -960,8 +979,6 @@ func (backend *Backend) Close() error {
 
 	var errs []error
 	if machine != nil {
-		// Flush the title's writable storage so saves survive a close/reopen.
-		errs = append(errs, backend.persistSaveData(machine, closingHash))
 		errs = append(errs, machine.Close())
 	}
 	if sourceFile != nil {
@@ -1063,7 +1080,7 @@ func (backend *Backend) loadState(slot int) error {
 	if err != nil {
 		return err
 	}
-	file, err := os.Open(path)
+	file, err := savefile.Open(path)
 	if err != nil {
 		return err
 	}
@@ -1148,19 +1165,7 @@ type stateHeader struct {
 }
 
 func replaceFileCrashSafely(temporaryPath, targetPath string) error {
-	backupPath := targetPath + ".bak"
-	_ = os.Remove(backupPath)
-	if _, err := os.Stat(targetPath); err == nil {
-		if err := os.Rename(targetPath, backupPath); err != nil {
-			return err
-		}
-	}
-	if err := os.Rename(temporaryPath, targetPath); err != nil {
-		_ = os.Rename(backupPath, targetPath)
-		return err
-	}
-	_ = os.Remove(backupPath)
-	return nil
+	return savefile.Replace(temporaryPath, targetPath)
 }
 
 func frameFingerprint(frame image.Image) uint64 {

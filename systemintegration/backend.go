@@ -22,6 +22,7 @@ import (
 	"github.com/mirusu400/aram-core/cpu"
 	"github.com/mirusu400/aram-core/firmwareset"
 	"github.com/mirusu400/aram-core/systemmachine"
+	"github.com/mirusu400/aram-emu/internal/savefile"
 	"github.com/mirusu400/aram-frontend/frontend"
 )
 
@@ -79,19 +80,21 @@ type Backend struct {
 	operationMu sync.Mutex
 	mu          sync.RWMutex
 
-	options       Options
-	machine       systemMachine
-	firmwareFiles []*os.File
-	input         frontend.InputInfo
-	audio         frontend.AudioSettings
-	state         frontend.BackendState
-	contentID     string
-	mediaWarning  string
-	controls      map[string]bool
-	frameHash     string
-	frameSequence uint64
-	inputSources  map[string]string
-	inputHolds    map[string]inputHold
+	options             Options
+	machine             systemMachine
+	firmwareFiles       []*os.File
+	input               frontend.InputInfo
+	audio               frontend.AudioSettings
+	state               frontend.BackendState
+	contentID           string
+	mediaWarning        string
+	mediaRestoreFailed  bool
+	mediaRestorePending bool
+	controls            map[string]bool
+	frameHash           string
+	frameSequence       uint64
+	inputSources        map[string]string
+	inputHolds          map[string]inputHold
 }
 
 type inputHold struct {
@@ -188,14 +191,29 @@ func (backend *Backend) OpenWithProgress(
 	identity := machine.Identity()
 	info.Format = "Samsung system firmware set"
 	info.ProfileID = identity.FirmwareBuildID
+	if oldMachine := backend.currentMachine(); oldMachine != nil {
+		if err := backend.persistCurrentMedia(oldMachine); err != nil {
+			_ = machine.Close()
+			closeFiles()
+			return info, systemBackendError(frontend.FailureUnknown, fmt.Errorf("save current phone media before replacement: %w", err))
+		}
+	}
 
 	mediaWarning := ""
+	mediaRestoreFailed, mediaRestorePending := false, false
 	if !backend.options.DisableMediaPersistence {
-		if restoreErr := backend.restoreMedia(machine, contentID); restoreErr != nil {
+		if preserveExisting, restoreErr := backend.restoreMedia(machine, contentID); restoreErr != nil {
 			// A stale or interrupted local media file must not make the immutable
 			// firmware unbootable. Keep the fresh machine and report the warning
 			// through the compatibility panel.
+			mediaRestoreFailed = preserveExisting
+			mediaRestorePending = !preserveExisting
 			mediaWarning = restoreErr.Error()
+			if preserveExisting {
+				mediaWarning += "; existing media is preserved and this session will not overwrite it"
+			} else {
+				mediaWarning += "; media storage will be retried when saving"
+			}
 		}
 	}
 	controls := make(map[string]bool)
@@ -212,6 +230,8 @@ func (backend *Backend) OpenWithProgress(
 	backend.state = frontend.StateReady
 	backend.contentID = contentID
 	backend.mediaWarning = mediaWarning
+	backend.mediaRestoreFailed = mediaRestoreFailed
+	backend.mediaRestorePending = mediaRestorePending
 	backend.controls = controls
 	backend.frameHash = ""
 	backend.frameSequence = 0
@@ -669,7 +689,9 @@ func (backend *Backend) Close() error {
 	if machine != nil {
 		// Persist while contentID is still available. Clearing the backend first
 		// silently skipped media saving on ordinary window close.
-		errs = append(errs, backend.persistCurrentMedia(machine))
+		if err := backend.persistCurrentMedia(machine); err != nil {
+			return err
+		}
 	}
 
 	backend.mu.Lock()
@@ -680,6 +702,8 @@ func (backend *Backend) Close() error {
 	backend.state = frontend.StateEmpty
 	backend.contentID = ""
 	backend.mediaWarning = ""
+	backend.mediaRestoreFailed = false
+	backend.mediaRestorePending = false
 	backend.controls = nil
 	backend.frameHash = ""
 	backend.frameSequence = 0
@@ -720,40 +744,86 @@ func (backend *Backend) persistCurrentMedia(machine systemMachine) error {
 	}
 	backend.mu.RLock()
 	contentID := backend.contentID
+	restoreFailed := backend.mediaRestoreFailed
+	restorePending := backend.mediaRestorePending
 	backend.mu.RUnlock()
-	if contentID == "" {
+	// A fresh machine opened after a restore error must not replace the user's
+	// unreadable media with its default contents. The warning remains visible.
+	if contentID == "" || restoreFailed {
 		return nil
+	}
+	path, err := backend.mediaPath(contentID)
+	if err != nil {
+		return err
+	}
+	if restorePending {
+		// Storage may become accessible after Open. Check for an existing save
+		// before writing the fresh session, so newly visible media stays intact.
+		exists, err := existingMediaFile(path)
+		if err != nil {
+			return fmt.Errorf("inspect phone media after storage failure: %w", err)
+		}
+		if exists {
+			backend.mu.Lock()
+			backend.mediaRestoreFailed = true
+			backend.mediaRestorePending = false
+			backend.mediaWarning = "persistent phone media became available after opening; existing media is preserved and this session will not overwrite it"
+			backend.mu.Unlock()
+			return nil
+		}
 	}
 	media, err := machine.SaveMedia()
 	if err != nil {
 		return fmt.Errorf("capture persistent phone media: %w", err)
 	}
-	path, err := backend.mediaPath(contentID)
-	if err != nil {
-		return err
-	}
 	if err := writeMediaFile(path, media); err != nil {
 		return fmt.Errorf("save persistent phone media: %w", err)
+	}
+	if restorePending {
+		backend.mu.Lock()
+		backend.mediaRestorePending = false
+		backend.mediaWarning = ""
+		backend.mu.Unlock()
 	}
 	return nil
 }
 
-func (backend *Backend) restoreMedia(machine systemMachine, contentID string) error {
+// restoreMedia reports whether a failed restore found existing media that must
+// be preserved. Storage errors before a file is found remain retryable.
+func (backend *Backend) restoreMedia(machine systemMachine, contentID string) (bool, error) {
 	path, err := backend.mediaPath(contentID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	media, err := readMediaFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return fmt.Errorf("read persistent phone media: %w", err)
+		exists, _ := existingMediaFile(path)
+		return exists, fmt.Errorf("read persistent phone media: %w", err)
 	}
 	if err := machine.LoadMedia(media); err != nil {
-		return fmt.Errorf("restore persistent phone media: %w", err)
+		return true, fmt.Errorf("restore persistent phone media: %w", err)
 	}
-	return nil
+	return false, nil
+}
+
+func existingMediaFile(path string) (bool, error) {
+	for _, candidate := range []string{path, path + ".bak"} {
+		info, err := os.Lstat(candidate)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if !info.Mode().IsRegular() {
+			return false, fmt.Errorf("phone media path %q is not a regular file", candidate)
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 func (backend *Backend) mediaPath(contentID string) (string, error) {
@@ -824,7 +894,7 @@ func writeMediaFile(path string, media systemmachine.MediaState) error {
 }
 
 func readMediaFile(path string) (systemmachine.MediaState, error) {
-	file, err := os.Open(path)
+	file, err := savefile.Open(path)
 	if err != nil {
 		return systemmachine.MediaState{}, err
 	}
@@ -882,21 +952,7 @@ func readMediaFile(path string) (systemmachine.MediaState, error) {
 }
 
 func replaceFile(path, temporaryPath string) error {
-	backupPath := path + ".bak"
-	_ = os.Remove(backupPath)
-	if _, err := os.Stat(path); err == nil {
-		if err := os.Rename(path, backupPath); err != nil {
-			return err
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		_ = os.Rename(backupPath, path)
-		return err
-	}
-	_ = os.Remove(backupPath)
-	return nil
+	return savefile.Replace(temporaryPath, path)
 }
 
 func equalBytes(left, right []byte) bool {

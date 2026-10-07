@@ -24,24 +24,29 @@ Prerequisites are Go, `ebitenmobile`, JDK 17, Android SDK 36, Android NDK
 library is compatible with Android devices using 16 KB memory pages.
 
 ```powershell
-go install github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@v2.9.9
+$aramEbitenVersion = (go list -m -f '{{.Version}}' github.com/hajimehoshi/ebiten/v2).Trim()
+go install "github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@${aramEbitenVersion}"
 New-Item -ItemType Directory -Force android/app/libs | Out-Null
 ebitenmobile bind -target android/arm64,android/amd64 -androidapi 23 -trimpath `
   -ldflags="-s -w" -javapkg io.github.mirusu400.aram `
   -o android/app/libs/aram.aar ./mobile
-gradle --no-daemon -p android :app:lintGithubDebug :app:assembleGithubDebug
+gradle --no-daemon -p android :app:testGithubDebugUnitTest :app:lintGithubDebug :app:assembleGithubDebug
 ```
+
+Run these commands from the `aram-emu` repository root with the required sibling
+checkouts from `go.work` present. The binder version is read from the product's
+Go module, as in CI, because its Java glue must match the linked Ebitengine API.
 
 The Gradle build derives its density-specific and adaptive launcher icons from
 `../aram-frontend/frontend/assets/icon.png`, the same pinned artwork used by
 the desktop window. Set `ARAM_ICON_SOURCE` to an absolute PNG path only when
 building from a workspace with a different sibling layout.
 
-`assembleDebug` produces the Nightly channel at
-`android/app/build/outputs/apk/debug/app-debug.apk`: launcher label `ARAM
+`:app:assembleGithubDebug` produces the Nightly channel at
+`android/app/build/outputs/apk/github/debug/app-github-debug.apk`: launcher label `ARAM
 Nightly`, application ID `io.github.mirusu400.aram.nightly`, signed with
-`nightly.keystore`. `assembleRelease` produces the Stable channel at
-`android/app/build/outputs/apk/release/app-release.apk`: launcher label `ARAM`,
+`nightly.keystore`. `:app:assembleGithubRelease` produces the Stable channel at
+`android/app/build/outputs/apk/github/release/app-github-release.apk`: launcher label `ARAM`,
 base application ID `io.github.mirusu400.aram`, signed with `stable.keystore`.
 The differing application IDs let the two channels install side by side; the
 per-channel launcher label is injected by `resValue` in `app/build.gradle`, not

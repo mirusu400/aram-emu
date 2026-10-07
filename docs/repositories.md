@@ -40,11 +40,21 @@ repositories whose only content is a future idea.
 ## Versioning and integration
 
 - Each code repository tags its own semantic version.
-- `aram-emu` pins exact core, frontend, and authd revisions for a product
-  build.
+- `product-components.json` pins exact core, frontend, authd, RG DS Ebitengine
+  fork, and `aram-test` runner revisions for a product build.
 - Development may use a local Go workspace; CI and releases use reproducible
   tagged or commit-pinned dependencies.
 - Contract changes land with a migration document before the integration pin
   advances.
 - Release artifacts are produced by integration workflows, not copied into
   Git.
+
+Component Nightly notifications select candidate core/frontend SHAs without
+changing the product lock. The reusable workspace gate tests those candidates
+against an exact product revision, runs the ordered ownership checks, and runs
+`aram-test all --force --jobs 4 --slices 4096`, including its checked-in SDK
+fixtures. It fetches no private corpus. Promotion proceeds only if `main`
+still equals the tested product revision; concurrent product changes require a
+new validation. Both Nightly and stable publication also require this gate for
+the exact revisions used to package the artifacts. Privacy-safe compatibility
+reports remain workflow artifacts, separate from the downloadable release.

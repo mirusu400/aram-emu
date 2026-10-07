@@ -47,6 +47,7 @@ jobs:
       frontend_sha: ${{ steps.revisions.outputs.frontend_sha }}
       authd_sha: ${{ steps.revisions.outputs.authd_sha }}
       ebiten_sha: ${{ steps.revisions.outputs.ebiten_sha }}
+      test_runner_sha: ${{ steps.revisions.outputs.test_runner_sha }}
     steps:
       - name: Check out product manifest
         uses: actions/checkout@v6
@@ -64,10 +65,15 @@ jobs:
           AUTHD_REF_OVERRIDE: ${{ inputs.authd_ref }}
           EBITEN_REF_OVERRIDE: ${{ inputs.ebiten_ref }}
         run: |
+          for component in core frontend authd ebiten test_runner; do
+            locked_ref="$(jq -er --arg component "${component}" '.[$component]' product-components.json)"
+            [[ "${locked_ref}" =~ ^[0-9a-f]{40}$ ]]
+          done
           core_ref="${CORE_REF_OVERRIDE:-$(jq -r '.core' product-components.json)}"
           frontend_ref="${FRONTEND_REF_OVERRIDE:-$(jq -r '.frontend' product-components.json)}"
           authd_ref="${AUTHD_REF_OVERRIDE:-$(jq -r '.authd' product-components.json)}"
           ebiten_ref="${EBITEN_REF_OVERRIDE:-$(jq -r '.ebiten' product-components.json)}"
+          test_runner_ref="$(jq -er '.test_runner' product-components.json)"
           test -n "${core_ref}"
           test "${core_ref}" != "null"
           test -n "${frontend_ref}"
@@ -80,6 +86,7 @@ jobs:
           echo "frontend_ref=${frontend_ref}" >> "${GITHUB_OUTPUT}"
           echo "authd_ref=${authd_ref}" >> "${GITHUB_OUTPUT}"
           echo "ebiten_ref=${ebiten_ref}" >> "${GITHUB_OUTPUT}"
+          echo "test_runner_ref=${test_runner_ref}" >> "${GITHUB_OUTPUT}"
 
       - name: Check out core
         uses: actions/checkout@v6
@@ -122,6 +129,20 @@ jobs:
           echo "frontend_sha=$(git -C aram-frontend rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
           echo "authd_sha=$(git -C aram-authd rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
           echo "ebiten_sha=$(git -C ebiten rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+          echo "test_runner_sha=${TEST_RUNNER_SHA}" >> "${GITHUB_OUTPUT}"
+        env:
+          TEST_RUNNER_SHA: ${{ steps.requested.outputs.test_runner_ref }}
+
+  workspace-gate:
+    name: Pinned synthetic compatibility
+    needs: resolve-components
+    uses: ./.github/workflows/workspace-gate.yml
+    with:
+      product_sha: ${{ github.sha }}
+      core_sha: ${{ needs.resolve-components.outputs.core_sha }}
+      frontend_sha: ${{ needs.resolve-components.outputs.frontend_sha }}
+      authd_sha: ${{ needs.resolve-components.outputs.authd_sha }}
+      test_runner_sha: ${{ needs.resolve-components.outputs.test_runner_sha }}
 
   desktop:
     name: ${{ matrix.name }}
@@ -434,7 +455,7 @@ jobs:
           # package, nightly-signed).
           if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
             gradle --no-daemon --stacktrace -p android \
-              :app:lintGithubDebug :app:assembleGithubRelease
+              :app:testGithubDebugUnitTest :app:lintGithubDebug :app:assembleGithubRelease
             {
               echo "ARAM_APK=android/app/build/outputs/apk/github/release/app-github-release.apk"
               echo "ARAM_APP_PKG=io.github.mirusu400.aram"
@@ -444,7 +465,7 @@ jobs:
             } >> "${GITHUB_ENV}"
           else
             gradle --no-daemon --stacktrace -p android \
-              :app:lintGithubDebug :app:assembleGithubDebug
+              :app:testGithubDebugUnitTest :app:lintGithubDebug :app:assembleGithubDebug
             {
               echo "ARAM_APK=android/app/build/outputs/apk/github/debug/app-github-debug.apk"
               echo "ARAM_APP_PKG=io.github.mirusu400.aram.nightly"
@@ -570,7 +591,7 @@ jobs:
             -o android/app/libs/aram-play.aar \
             ./mobile
           gradle --no-daemon --stacktrace -p android \
-            :app:lintPlayDebug :app:assemblePlayRelease :app:bundlePlayRelease
+            :app:testPlayDebugUnitTest :app:lintPlayDebug :app:assemblePlayRelease :app:bundlePlayRelease
           play_apk="android/app/build/outputs/apk/play/release/app-play-release.apk"
           test -f "${play_apk}"
           aapt="$(find "${ANDROID_HOME}/build-tools" -name aapt -type f | \
@@ -783,6 +804,14 @@ jobs:
           GOARCH: wasm
         run: go vet ./cmd/aram-web
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Test browser startup failures
+        working-directory: aram-emu
+        run: node --test web/boot.test.cjs
+
       - name: Build WebAssembly bundle
         working-directory: aram-emu
         shell: bash
@@ -976,6 +1005,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     needs:
       - resolve-components
+      - workspace-gate
       - desktop
       - android
       - libretro-android
@@ -991,6 +1021,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: release-assets
+          pattern: aram-*
           merge-multiple: true
       - name: Verify release archives
         shell: bash
@@ -1018,6 +1049,7 @@ jobs:
           CORE_SHA: ${{ needs.resolve-components.outputs.core_sha }}
           FRONTEND_SHA: ${{ needs.resolve-components.outputs.frontend_sha }}
           AUTHD_SHA: ${{ needs.resolve-components.outputs.authd_sha }}
+          TEST_RUNNER_SHA: ${{ needs.resolve-components.outputs.test_runner_sha }}
         shell: bash
         run: |
           emu_short="${GITHUB_SHA::7}"
@@ -1030,6 +1062,7 @@ jobs:
           aram-core: ${CORE_SHA}
           aram-frontend: ${FRONTEND_SHA}
           aram-authd: ${AUTHD_SHA}
+          aram-test: ${TEST_RUNNER_SHA}
 
           Source: https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}
           Workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -1072,6 +1105,7 @@ jobs:
     if: github.event_name == 'release' && github.event.release.tag_name != 'nightly'
     needs:
       - resolve-components
+      - workspace-gate
       - desktop
       - android
       - libretro-android
@@ -1085,6 +1119,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: release-assets
+          pattern: aram-*
           merge-multiple: true
       - name: Verify release archives
         shell: bash

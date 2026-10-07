@@ -10,4 +10,5 @@
     <string name="shortcut_request_failed">Could not add the game shortcut.</string>
     <string name="shortcut_icon_missing">This game has no icon, so a shortcut cannot be created.</string>
     <string name="shortcut_game_missing">This game is no longer available. Open it again in ARAM.</string>
+    <string name="backup_import_interrupted">The app restarted, so the save backup import was canceled. Open the game and select the backup again.</string>
 </resources>

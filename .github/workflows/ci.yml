@@ -16,6 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Test component promotion and concurrent main updates
+        run: python -m unittest discover -s scripts -p 'test_*.py'
       - name: Require ecosystem documents
         run: |
           test -f README.md

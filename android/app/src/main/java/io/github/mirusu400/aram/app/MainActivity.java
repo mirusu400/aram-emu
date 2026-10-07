@@ -19,6 +19,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.LocaleList;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.text.InputType;
 import android.view.View;
@@ -47,11 +49,13 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.UUID;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -64,10 +68,13 @@ public final class MainActivity extends Activity
         implements Host, AudioManager.OnAudioFocusChangeListener {
     private static final int REQUEST_DOCUMENT = 1001;
     private static final int REQUEST_EXPORT_DOCUMENT = 1002;
-    private static final long MAX_IMPORT_BYTES = 2L * 1024L * 1024L * 1024L;
     private static final String STATE_PENDING_DOCUMENT_KIND = "pending_document_kind";
     private static final String STATE_PENDING_EXPORT_PATH = "pending_export_path";
     private static final String STATE_PENDING_EXPORT_TITLE = "pending_export_title";
+    private static final String STATE_INTENT_PROCESS = "intent_process";
+    private static final String STATE_INTENT_REQUEST = "intent_request";
+    private static final String STATE_PENDING_IMPORTS = "pending_imports";
+    private static final String PROCESS_ID = UUID.randomUUID().toString();
     private static final String ACTION_OPEN_GAME_SHORTCUT =
             "io.github.mirusu400.aram.action.OPEN_GAME_SHORTCUT";
     private static final String EXTRA_GAME_SHORTCUT_ID = "game_shortcut_id";
@@ -78,7 +85,13 @@ public final class MainActivity extends Activity
     private static final String DOCUMENT_KIND_FIRMWARE = "firmware";
     private static final String DOCUMENT_KIND_SAVE_BACKUP = "save-backup";
 
-    private final ExecutorService importExecutor = Executors.newSingleThreadExecutor();
+    // Imports belong to the process, not to an Activity that can be recreated.
+    // Pending requests stay registered until their main-thread delivery finishes.
+    private static final ExecutorService importExecutor = Executors.newSingleThreadExecutor();
+    private static final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private static final Map<String, Bundle> pendingImports = new LinkedHashMap<>();
+
+    private IncomingIntentState incomingIntentState;
 
     private EbitenView gameView;
     private AlertDialog textInputDialog;
@@ -95,6 +108,11 @@ public final class MainActivity extends Activity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Seq.setContext(getApplicationContext());
+        incomingIntentState = new IncomingIntentState(
+                PROCESS_ID,
+                savedInstanceState == null ? null : savedInstanceState.getString(STATE_INTENT_PROCESS),
+                savedInstanceState == null ? null : savedInstanceState.getString(STATE_INTENT_REQUEST)
+        );
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         if (savedInstanceState != null) {
@@ -151,7 +169,13 @@ public final class MainActivity extends Activity
         audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         adMobController = new AdMobController(this, adContainer);
         adMobController.start();
-        handleIncomingIntent(getIntent());
+        if (incomingIntentState.shouldHandleInitialIntent()) {
+            // A restarted process has a new Go runtime. Resume unfinished copies
+            // under their original IDs before reopening its launch document.
+            if (!restorePendingImports(savedInstanceState)) {
+                handleIncomingIntent(getIntent());
+            }
+        }
     }
 
     // The frontend hides its on-screen controls while a real controller is
@@ -275,6 +299,7 @@ public final class MainActivity extends Activity
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        incomingIntentState.newIntent();
         handleIncomingIntent(intent);
     }
 
@@ -658,34 +683,69 @@ public final class MainActivity extends Activity
         outState.putString(STATE_PENDING_DOCUMENT_KIND, pendingDocumentKind);
         outState.putString(STATE_PENDING_EXPORT_PATH, pendingExportPath);
         outState.putString(STATE_PENDING_EXPORT_TITLE, pendingExportTitle);
+        outState.putString(STATE_INTENT_PROCESS, PROCESS_ID);
+        outState.putString(STATE_INTENT_REQUEST, incomingIntentState.requestId());
+        outState.putParcelableArrayList(
+                STATE_PENDING_IMPORTS, new ArrayList<>(pendingImports.values())
+        );
         super.onSaveInstanceState(outState);
     }
 
+    private boolean restorePendingImports(Bundle savedInstanceState) {
+        if (savedInstanceState == null) {
+            return false;
+        }
+        ArrayList<Bundle> requests = savedInstanceState.getParcelableArrayList(STATE_PENDING_IMPORTS);
+        if (requests == null) {
+            return false;
+        }
+        PendingImportRecovery recovery = new PendingImportRecovery();
+        for (Bundle request : requests) {
+            String uri = request.getString("uri");
+            String id = request.getString("id");
+            if (uri != null && id != null) {
+                String kind = normalizeDocumentKind(request.getString("kind"));
+                recovery.restore(kind, () -> importDocument(Uri.parse(uri), kind, id));
+            }
+        }
+        if (recovery.canceledBackup()) {
+            Mobile.documentSelectionCanceled();
+            Toast.makeText(this, R.string.backup_import_interrupted, Toast.LENGTH_LONG).show();
+        }
+        // Both game and firmware imports open a new session. Replaying the old
+        // launch after either one would replace the user's newer picker request.
+        return recovery.restoresSession();
+    }
+
     private void exportDocument(File source, Uri destination, String title) {
+        Context context = getApplicationContext();
         importExecutor.execute(() -> {
-            try (
-                    BufferedInputStream input = new BufferedInputStream(
-                            new FileInputStream(source)
-                    );
-                    OutputStream raw = getContentResolver().openOutputStream(
-                            destination,
-                            "w"
-                    );
-                    BufferedOutputStream output = raw == null
-                            ? null
-                            : new BufferedOutputStream(raw)
-            ) {
-                if (output == null) {
-                    throw new IOException("the document provider returned no output");
+            try {
+                try (
+                        BufferedInputStream input = new BufferedInputStream(
+                                new FileInputStream(source)
+                        );
+                        OutputStream raw = context.getContentResolver().openOutputStream(
+                                destination,
+                                "w"
+                        );
+                        BufferedOutputStream output = raw == null
+                                ? null
+                                : new BufferedOutputStream(raw)
+                ) {
+                    if (output == null) {
+                        throw new IOException("the document provider returned no output");
+                    }
+                    byte[] buffer = new byte[64 * 1024];
+                    for (int count; (count = input.read(buffer)) != -1; ) {
+                        output.write(buffer, 0, count);
+                    }
+                    output.flush();
                 }
-                byte[] buffer = new byte[64 * 1024];
-                for (int count; (count = input.read(buffer)) != -1; ) {
-                    output.write(buffer, 0, count);
-                }
-                output.flush();
-                runOnUiThread(() -> Toast.makeText(
-                        this,
-                        getString(R.string.export_succeeded, title),
+                // Providers can fail while closing the stream, too.
+                mainHandler.post(() -> Toast.makeText(
+                        context,
+                        context.getString(R.string.export_succeeded, title),
                         Toast.LENGTH_SHORT
                 ).show());
             } catch (IOException | RuntimeException error) {
@@ -694,9 +754,9 @@ public final class MainActivity extends Activity
                     detail = error.getClass().getSimpleName();
                 }
                 String finalDetail = detail;
-                runOnUiThread(() -> Toast.makeText(
-                        this,
-                        getString(R.string.export_failed, finalDetail),
+                mainHandler.post(() -> Toast.makeText(
+                        context,
+                        context.getString(R.string.export_failed, finalDetail),
                         Toast.LENGTH_LONG
                 ).show());
             }
@@ -792,7 +852,6 @@ public final class MainActivity extends Activity
             textInputDialog = null;
         }
         Mobile.setHost(null);
-        importExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -876,7 +935,7 @@ public final class MainActivity extends Activity
             if (isRemoteAppLink(uri)) {
                 openRemoteAppLink(uri);
             } else {
-                importDocument(uri, DOCUMENT_KIND_INPUT);
+                importDocument(uri, DOCUMENT_KIND_INPUT, incomingIntentState.requestId());
             }
         }
     }
@@ -891,25 +950,40 @@ public final class MainActivity extends Activity
     }
 
     private void openRemoteAppLink(Uri uri) {
+        Context context = getApplicationContext();
         importExecutor.execute(() -> {
             String error = Mobile.openLink(uri.toString());
             if (error == null || error.isEmpty()) {
                 return;
             }
-            runOnUiThread(() -> Toast.makeText(
-                    this,
-                    getString(R.string.link_open_failed, error),
+            mainHandler.post(() -> Toast.makeText(
+                    context,
+                    context.getString(R.string.link_open_failed, error),
                     Toast.LENGTH_LONG
             ).show());
         });
     }
 
     private void importDocument(Uri uri, String kind) {
+        importDocument(uri, kind, UUID.randomUUID().toString());
+    }
+
+    private void importDocument(Uri uri, String kind, String requestId) {
         String requested = normalizeDocumentKind(kind);
+        if (pendingImports.containsKey(requestId)) {
+            return;
+        }
+        Bundle request = new Bundle();
+        request.putString("id", requestId);
+        request.putString("uri", uri.toString());
+        request.putString("kind", requested);
+        pendingImports.put(requestId, request);
+        Context context = getApplicationContext();
         importExecutor.execute(() -> {
             try {
-                ImportedDocument document = copyIntoPrivateStorage(uri);
-                runOnUiThread(() -> {
+                PrivateDocumentImport.Result document = copyIntoPrivateStorage(context, uri, requestId);
+                mainHandler.post(() -> {
+                    pendingImports.remove(requestId);
                     if (DOCUMENT_KIND_FIRMWARE.equals(requested)) {
                         Mobile.openFirmware(
                                 document.file.getAbsolutePath(),
@@ -925,15 +999,16 @@ public final class MainActivity extends Activity
                     }
                 });
             } catch (Exception error) {
-                runOnUiThread(() -> {
+                mainHandler.post(() -> {
+                    pendingImports.remove(requestId);
                     Mobile.documentSelectionCanceled();
                     String detail = error.getMessage();
                     if (detail == null || detail.isEmpty()) {
                         detail = error.getClass().getSimpleName();
                     }
                     Toast.makeText(
-                            this,
-                            getString(R.string.import_failed, detail),
+                            context,
+                            context.getString(R.string.import_failed, detail),
                             Toast.LENGTH_LONG
                     ).show();
                 });
@@ -950,53 +1025,24 @@ public final class MainActivity extends Activity
      * backup file names, issue report titles - once anything reopens the title
      * by path alone.
      */
-    private ImportedDocument copyIntoPrivateStorage(Uri uri) throws IOException {
-        ContentResolver resolver = getContentResolver();
-        String displayName = queryDisplayName(resolver, uri);
-        File imports = new File(
-                new File(getFilesDir(), "imports"),
-                UUID.randomUUID().toString()
-        );
-        if (!imports.isDirectory() && !imports.mkdirs()) {
-            throw new IOException("cannot create the import directory");
-        }
+    private static PrivateDocumentImport.Result copyIntoPrivateStorage(
+            Context context, Uri uri, String requestId
+    ) throws IOException {
+        ContentResolver resolver = context.getContentResolver();
+        return PrivateDocumentImport.copy(
+                new File(context.getFilesDir(), "imports"), requestId,
+                new PrivateDocumentImport.Source() {
+                    @Override
+                    public String displayName() {
+                        return queryDisplayName(resolver, uri);
+                    }
 
-        String safeName = safeFileName(displayName);
-        File destination = new File(imports, safeName);
-        File temporary = new File(destination.getAbsolutePath() + ".part");
-
-        long total = 0;
-        try (
-                InputStream raw = resolver.openInputStream(uri);
-                BufferedInputStream input = raw == null
-                        ? null
-                        : new BufferedInputStream(raw);
-                FileOutputStream fileOutput = new FileOutputStream(temporary);
-                BufferedOutputStream output = new BufferedOutputStream(fileOutput)
-        ) {
-            if (input == null) {
-                throw new IOException("the document provider returned no data");
-            }
-            byte[] buffer = new byte[64 * 1024];
-            for (int count; (count = input.read(buffer)) != -1; ) {
-                total += count;
-                if (total > MAX_IMPORT_BYTES) {
-                    throw new IOException("the selected document exceeds 2 GiB");
+                    @Override
+                    public InputStream open() throws IOException {
+                        return resolver.openInputStream(uri);
+                    }
                 }
-                output.write(buffer, 0, count);
-            }
-            output.flush();
-            fileOutput.getFD().sync();
-        } catch (IOException | RuntimeException error) {
-            temporary.delete();
-            throw error;
-        }
-
-        if (!temporary.renameTo(destination)) {
-            temporary.delete();
-            throw new IOException("cannot finish the imported document");
-        }
-        return new ImportedDocument(destination, displayName);
+        );
     }
 
     private static String queryDisplayName(ContentResolver resolver, Uri uri) {
@@ -1023,30 +1069,6 @@ public final class MainActivity extends Activity
         }
         String fallback = uri.getLastPathSegment();
         return fallback == null || fallback.isEmpty() ? "document" : fallback;
-    }
-
-    private static String safeFileName(String name) {
-        String result = name.replaceAll(
-                "[\\\\/:*?\"<>|\\p{Cntrl}]",
-                "_"
-        ).trim();
-        if (result.isEmpty() || ".".equals(result) || "..".equals(result)) {
-            result = "document";
-        }
-        if (result.length() > 120) {
-            result = result.substring(result.length() - 120);
-        }
-        return result;
-    }
-
-    private static final class ImportedDocument {
-        final File file;
-        final String displayName;
-
-        ImportedDocument(File file, String displayName) {
-            this.file = file;
-            this.displayName = displayName;
-        }
     }
 
     private String deviceLanguageTag() {

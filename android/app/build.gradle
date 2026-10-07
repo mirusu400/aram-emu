@@ -173,6 +173,7 @@ def playAar = file("libs/aram-play.aar")
 def playAarFile = playAar.exists() ? playAar : file("libs/aram.aar")
 
 dependencies {
+    testImplementation "junit:junit:4.13.2"
     githubImplementation files("libs/aram.aar")
     playImplementation files(playAarFile)
     // Ads and consent code are deliberately Play-only. GitHub/sideload builds

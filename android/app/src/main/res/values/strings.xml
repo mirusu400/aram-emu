@@ -12,4 +12,5 @@
     <string name="shortcut_request_failed">게임 바로가기를 추가하지 못했습니다.</string>
     <string name="shortcut_icon_missing">게임 아이콘이 없어 바로가기를 만들 수 없습니다.</string>
     <string name="shortcut_game_missing">게임 파일이 없습니다. ARAM에서 다시 열어 주세요.</string>
+    <string name="backup_import_interrupted">앱이 다시 시작되어 저장 백업 가져오기를 취소했습니다. 게임을 열고 백업을 다시 선택해 주세요.</string>
 </resources>
