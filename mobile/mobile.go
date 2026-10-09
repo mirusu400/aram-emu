@@ -105,6 +105,24 @@ type Host interface {
 	PinGameShortcut(path, title string, iconPNG []byte) error
 }
 
+// PerformanceHost receives callbacks on the actual locked emulation/audio OS
+// thread. Android uses them for scheduling and ADPF; guest clocks stay in Go.
+type PerformanceHost interface {
+	FrameWorkStarted(targetNanoseconds int64, uiPriority bool)
+	FrameWorkFinished(actualNanoseconds int64)
+	PrepareAudioThread()
+}
+
+func SetPerformanceHost(host PerformanceHost) {
+	frontend.SetNativePerformanceHost(host)
+}
+
+// ConfigureAudioOutput supplies AudioManager's output properties, before the
+// first player is created and again when returning from the background.
+func ConfigureAudioOutput(sampleRate, framesPerBuffer int) {
+	frontend.SetHostAudioProperties(sampleRate, framesPerBuffer)
+}
+
 var hostBridge struct {
 	sync.RWMutex
 	host Host

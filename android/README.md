@@ -17,6 +17,10 @@ is not the standalone frontend preview: the AAR statically includes the pinned
 - audio focus and gamepad/touch delivery through Ebitengine;
 - handing downloaded product updates to the system package installer.
 
+Android also supplies audio output properties, worker performance hints, and
+PCM pump thread priority. See [Android runtime performance](../docs/android-runtime-performance.md)
+for buffering, input scheduling, diagnostics, and device verification.
+
 ## Local build (Nightly and Stable)
 
 Prerequisites are Go, `ebitenmobile`, JDK 17, Android SDK 36, Android NDK

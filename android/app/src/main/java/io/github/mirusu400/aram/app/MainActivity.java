@@ -13,6 +13,8 @@ import android.graphics.BitmapFactory;
 import android.graphics.drawable.Icon;
 import android.database.Cursor;
 import android.media.AudioAttributes;
+import android.media.AudioDeviceCallback;
+import android.media.AudioDeviceInfo;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.net.Uri;
@@ -63,9 +65,10 @@ import go.Seq;
 import io.github.mirusu400.aram.mobile.EbitenView;
 import io.github.mirusu400.aram.mobile.Host;
 import io.github.mirusu400.aram.mobile.Mobile;
+import io.github.mirusu400.aram.mobile.PerformanceHost;
 
 public final class MainActivity extends Activity
-        implements Host, AudioManager.OnAudioFocusChangeListener {
+        implements Host, PerformanceHost, AudioManager.OnAudioFocusChangeListener {
     private static final int REQUEST_DOCUMENT = 1001;
     private static final int REQUEST_EXPORT_DOCUMENT = 1002;
     private static final String STATE_PENDING_DOCUMENT_KIND = "pending_document_kind";
@@ -97,6 +100,8 @@ public final class MainActivity extends Activity
     private AlertDialog textInputDialog;
     private AudioManager audioManager;
     private AudioFocusRequest audioFocusRequest;
+    private PerformanceTuner performanceTuner;
+    private AudioDeviceCallback audioDeviceCallback;
     private String pendingDocumentKind = DOCUMENT_KIND_INPUT;
     private String pendingExportPath = "";
     private String pendingExportTitle = "";
@@ -134,8 +139,13 @@ public final class MainActivity extends Activity
         // device language is handed over before the frontend reads its
         // settings and picks a first-run default.
         Mobile.configureLocale(deviceLanguageTag());
+        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
+        configureAudioOutput();
+        observeAudioOutput();
         Mobile.configureStorage(getFilesDir().getAbsolutePath());
         Mobile.setHost(this);
+        performanceTuner = new PerformanceTuner(getApplicationContext());
+        Mobile.setPerformanceHost(this);
 
         gameView = new EbitenView(this);
         gameView.setFocusable(true);
@@ -166,7 +176,6 @@ public final class MainActivity extends Activity
         launchSecondaryKeypad();
         setupControllerDetection();
 
-        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         adMobController = new AdMobController(this, adContainer);
         adMobController.start();
         if (incomingIntentState.shouldHandleInitialIntent()) {
@@ -812,6 +821,8 @@ public final class MainActivity extends Activity
     @Override
     protected void onResume() {
         super.onResume();
+        configureAudioOutput();
+        performanceTuner.setActive(true);
         if (adMobController != null) {
             adMobController.onResume();
         }
@@ -826,6 +837,7 @@ public final class MainActivity extends Activity
 
     @Override
     protected void onPause() {
+        performanceTuner.setActive(false);
         if (adMobController != null) {
             adMobController.onPause();
         }
@@ -841,6 +853,12 @@ public final class MainActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        if (audioManager != null && audioDeviceCallback != null) {
+            audioManager.unregisterAudioDeviceCallback(audioDeviceCallback);
+            audioDeviceCallback = null;
+        }
+        performanceTuner.close();
+        Mobile.setPerformanceHost(null);
         if (adMobController != null) {
             adMobController.destroy();
             adMobController = null;
@@ -861,6 +879,58 @@ public final class MainActivity extends Activity
     public void onAudioFocusChange(int focusChange) {
         boolean active = focusChange == AudioManager.AUDIOFOCUS_GAIN;
         Mobile.audioFocus(active);
+    }
+
+    private void configureAudioOutput() {
+        int rate = 0;
+        int frames = 0;
+        if (audioManager != null) {
+            try {
+                rate = Integer.parseInt(audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE));
+                frames = Integer.parseInt(audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER));
+            } catch (RuntimeException error) {
+                Log.w("ARAM-Audio", "output properties unavailable; using portable buffers", error);
+            }
+        }
+        Mobile.configureAudioOutput(rate, frames);
+    }
+
+    private void observeAudioOutput() {
+        if (audioManager == null) {
+            return;
+        }
+        audioDeviceCallback = new AudioDeviceCallback() {
+            @Override
+            public void onAudioDevicesAdded(AudioDeviceInfo[] devices) {
+                configureAudioOutput();
+            }
+
+            @Override
+            public void onAudioDevicesRemoved(AudioDeviceInfo[] devices) {
+                configureAudioOutput();
+            }
+        };
+        try {
+            audioManager.registerAudioDeviceCallback(audioDeviceCallback, mainHandler);
+        } catch (RuntimeException error) {
+            audioDeviceCallback = null;
+            Log.w("ARAM-Audio", "output route observation unavailable", error);
+        }
+    }
+
+    @Override
+    public void frameWorkStarted(long targetNanoseconds, boolean uiPriority) {
+        performanceTuner.beginFrame(targetNanoseconds, uiPriority);
+    }
+
+    @Override
+    public void frameWorkFinished(long actualNanoseconds) {
+        performanceTuner.endFrame(actualNanoseconds);
+    }
+
+    @Override
+    public void prepareAudioThread() {
+        performanceTuner.prepareAudioThread();
     }
 
     private void requestAudioFocus() {
