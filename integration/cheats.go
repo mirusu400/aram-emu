@@ -31,6 +31,7 @@ const (
 	maxCheatCatalogBytes    = 1 << 20
 	cheatFetchTimeout       = 20 * time.Second
 	cheatChoicesVersion     = 1
+	cheatCacheMaxAge        = 24 * time.Hour
 	// openCheatEnsureTimeout bounds the catalog resolution that runs while a
 	// title opens. Opening must stay snappy even when the database is slow or
 	// the machine is offline; the Cheat Manager keeps the full fetch timeout
@@ -71,8 +72,9 @@ func newCheatCatalogStore() *cheatCatalogStore {
 	}
 }
 
-// load prefers a document that is already on disk so opening the panel stays
-// offline, and downloads only when nothing local answers for the title.
+// load uses local documents and fresh cached catalogs immediately. Stale
+// catalogs are refreshed within the caller's timeout; an unavailable database
+// leaves the last valid copy usable offline.
 //
 // Identities are tried in order. The loaded image identity comes first because
 // it survives repackaging; a container hash answers for entries published
@@ -107,6 +109,14 @@ func (store *cheatCatalogStore) load(
 			continue
 		}
 		if catalog, parseErr := cheat.ParseCatalog(data); parseErr == nil {
+			if info, statErr := os.Stat(cachePath); statErr == nil &&
+				time.Since(info.ModTime()) >= cheatCacheMaxAge {
+				// A superseded default repair can still parse and pass its byte
+				// guards while keeping the title stuck (Hybrid, issue 512).
+				if refreshed, fetchErr := store.fetch(ctx, identities); fetchErr == nil {
+					return refreshed, "cheat database", nil
+				}
+			}
 			return catalog, "cache", nil
 		}
 		// A cached document that no longer parses must not wedge the panel;
