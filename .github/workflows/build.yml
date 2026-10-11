@@ -796,7 +796,9 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: aram-emu/go.mod
+          # WASM GC fix: golang/go#80472, backported in Go 1.26.6.
+          # Keep scripts/build-web.ps1 on this same patched toolchain.
+          go-version: 1.26.9
           cache-dependency-path: |
             aram-emu/go.sum
             aram-emu/go.work.sum
