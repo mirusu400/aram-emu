@@ -524,9 +524,10 @@ jobs:
         run: |
           apk="${ARAM_APK}"
           test -f "${apk}"
-          python3 -m unittest discover -s scripts -p test_verify_android_native.py
+          python3 -m unittest discover -s scripts -p 'test_verify_android_*.py'
           python3 scripts/verify_android_native.py android/app/libs/aram.aar
           python3 scripts/verify_android_native.py "${apk}"
+          python3 scripts/verify_android_manifest.py "${apk}"
           unzip -p "${apk}" assets/BUILD-INFO.txt | grep -Fx \
             "aram-emu=${GITHUB_SHA}"
           aapt="$(find "${ANDROID_HOME}/build-tools" -name aapt -type f |
@@ -635,6 +636,13 @@ jobs:
           python3 scripts/verify_android_native.py android/app/libs/aram-play.aar
           python3 scripts/verify_android_native.py "${play_apk}"
           python3 scripts/verify_android_native.py "${aab}"
+          python3 scripts/verify_android_manifest.py "${play_apk}"
+          # Decode the actual bundle manifest using a pinned official tool.
+          bundletool="${RUNNER_TEMP}/bundletool-all-1.18.3.jar"
+          curl --fail --location --retry 3 --output "${bundletool}" \
+            https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
+          echo "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  ${bundletool}" | sha256sum --check
+          python3 scripts/verify_android_manifest.py "${aab}" --bundletool "${bundletool}"
           mapping="android/app/build/outputs/mapping/playRelease/mapping.txt"
           usage="android/app/build/outputs/mapping/playRelease/usage.txt"
           test -s "${mapping}"

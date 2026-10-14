@@ -72,6 +72,8 @@ Ebitengine renderer. ARMv7, NEON, and the Android version alone do not establish
 GPU compatibility. ES 2.0-only retro handhelds can use the
 [ARMv7 libretro core](../docs/libretro.md) with a compatible RetroArch renderer;
 that headless core does not depend on Ebitengine or ES 3.0.
+The app manifest declares ES 3.0 as required so Google Play filters out
+incompatible GPUs. Sideloading an APK does not establish GPU compatibility.
 
 Each channel keeps a fixed repository-owned signer so a newer CI build can
 upgrade an installed app in place: Nightly uses `nightly.keystore`, Stable uses
@@ -89,21 +91,31 @@ For an ARMv7-only device build, use `-target android/arm` and set
 Gradle's ABI filter cannot create a missing Go library. The Play AAR must use
 the same targets and retain its `SelfUpdateDisabled` linker setting.
 
-## ABI verification
+## ABI and GPU requirement verification
 
 Verify the complete JNI set and ELF machine types before distributing an archive:
 
 ```powershell
-python -m unittest discover -s scripts -p test_verify_android_native.py
+python -m unittest discover -s scripts -p 'test_verify_android_*.py'
 python scripts/verify_android_native.py android/app/libs/aram.aar
 python scripts/verify_android_native.py android/app/build/outputs/apk/github/debug/app-github-debug.apk
 python scripts/verify_android_native.py android/app/build/outputs/bundle/playRelease/app-play-release.aab
+python scripts/verify_android_manifest.py android/app/build/outputs/apk/github/debug/app-github-debug.apk
+python scripts/verify_android_manifest.py android/app/build/outputs/bundle/playRelease/app-play-release.aab --bundletool /path/to/bundletool-all-1.18.3.jar
 ```
 
 The verifier requires all three ABIs by default. Pass `--abis armeabi-v7a`
 when checking an intentionally single-ABI local build. It checks every packaged
 native library, requires 16 KB LOAD alignment for arm64/x86_64, and accepts
 4 KB LOAD alignment for ARMv7.
+
+The manifest verifier uses the SDK's `apkanalyzer` for APKs (`ANDROID_HOME` or
+`ANDROID_SDK_ROOT`, or an explicit `--apkanalyzer` path) and official
+[`bundletool`](https://developer.android.com/tools/bundletool) for AABs. It checks
+the packaged manifest for a required ES 3.0 feature, rejecting missing, optional,
+duplicate, or changed GLES requirements. CI pins bundletool 1.18.3 and verifies
+its SHA-256 before checking the Play AAB. The headless libretro core has no app
+manifest and retains its separate renderer compatibility.
 
 CI runs the portable core tests as ARMv7 machine code through QEMU with a
 NEON-capable CPU, in addition to building the actual Android JNI/audio bindings.
