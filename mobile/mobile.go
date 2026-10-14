@@ -268,7 +268,9 @@ func SetControllerConnected(connected bool) {
 
 // Pause and Resume mirror native Activity lifecycle transitions. Pause also
 // flushes guest storage because Android may kill a background process without
-// ever running the desktop-style backend close path.
+// ever running the desktop-style backend close path. SetHostActive also ends
+// the foreground analytics session and asynchronously flushes its final
+// performance summary; it does not depend on another Ebitengine Update.
 func Pause() {
 	game.instance().SetHostActive(false)
 	game.flushSaveData()

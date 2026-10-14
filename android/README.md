@@ -21,6 +21,14 @@ Android also supplies audio output properties, worker performance hints, and
 PCM pump thread priority. See [Android runtime performance](../docs/android-runtime-performance.md)
 for buffering, input scheduling, diagnostics, and device verification.
 
+The `Mobile.pause()` / `Mobile.resume()` bridge also ends and restarts foreground
+PostHog analytics sessions. Backgrounding sends the final performance window and
+session duration without waiting for network I/O on the Activity thread. Usage
+analytics includes input file names (without folder paths) and performance
+summaries while the existing setting is enabled. See the frontend
+[analytics schema](https://github.com/mirusu400/aram-frontend/blob/main/docs/analytics.md)
+for event properties.
+
 ## Local build (Nightly and Stable)
 
 Prerequisites are Go, `ebitenmobile`, JDK 17, Android SDK 36, Android NDK
