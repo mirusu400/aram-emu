@@ -39,7 +39,7 @@ library is compatible with Android devices using 16 KB memory pages.
 $aramEbitenVersion = (go list -m -f '{{.Version}}' github.com/hajimehoshi/ebiten/v2).Trim()
 go install "github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@${aramEbitenVersion}"
 New-Item -ItemType Directory -Force android/app/libs | Out-Null
-ebitenmobile bind -target android/arm64,android/amd64 -androidapi 23 -trimpath `
+ebitenmobile bind -target android/arm,android/arm64,android/amd64 -androidapi 23 -trimpath `
   -ldflags="-s -w" -javapkg io.github.mirusu400.aram `
   -o android/app/libs/aram.aar ./mobile
 gradle --no-daemon -p android :app:testGithubDebugUnitTest :app:lintGithubDebug :app:assembleGithubDebug
@@ -62,9 +62,16 @@ Nightly`, application ID `io.github.mirusu400.aram.nightly`, signed with
 base application ID `io.github.mirusu400.aram`, signed with `stable.keystore`.
 The differing application IDs let the two channels install side by side; the
 per-channel launcher label is injected by `resValue` in `app/build.gradle`, not
-`strings.xml`. CI publishes the arm64+x86_64 APK for whichever channel the event
-selects as `aram-android-universal.apk`, which works on physical arm64 devices
-and the x86_64 Android Virtual Devices commonly used on desktop hosts.
+`strings.xml`. CI publishes the ARMv7+arm64+x86_64 APK for whichever channel the
+event selects as `aram-android-universal.apk`. ARMv7 requires NEON, as required
+by the current NDK. GitHub builds require Android 6.0 (API 23) or newer; Play
+builds require Android 7.0 (API 24) or newer.
+
+The standalone app also requires OpenGL ES 3.0, as required by the existing
+Ebitengine renderer. ARMv7, NEON, and the Android version alone do not establish
+GPU compatibility. ES 2.0-only retro handhelds can use the
+[ARMv7 libretro core](../docs/libretro.md) with a compatible RetroArch renderer;
+that headless core does not depend on Ebitengine or ES 3.0.
 
 Each channel keeps a fixed repository-owned signer so a newer CI build can
 upgrade an installed app in place: Nightly uses `nightly.keystore`, Stable uses
@@ -76,6 +83,51 @@ that existing Stable installs cannot update across.
 
 For a smaller local arm64-only build, bind with `-target android/arm64` and set
 `ARAM_ANDROID_ABIS=arm64-v8a` for the Gradle invocation.
+
+For an ARMv7-only device build, use `-target android/arm` and set
+`ARAM_ANDROID_ABIS=armeabi-v7a`. Rebuild the AAR whenever its target set changes:
+Gradle's ABI filter cannot create a missing Go library. The Play AAR must use
+the same targets and retain its `SelfUpdateDisabled` linker setting.
+
+## ABI verification
+
+Verify the complete JNI set and ELF machine types before distributing an archive:
+
+```powershell
+python -m unittest discover -s scripts -p test_verify_android_native.py
+python scripts/verify_android_native.py android/app/libs/aram.aar
+python scripts/verify_android_native.py android/app/build/outputs/apk/github/debug/app-github-debug.apk
+python scripts/verify_android_native.py android/app/build/outputs/bundle/playRelease/app-play-release.aab
+```
+
+The verifier requires all three ABIs by default. Pass `--abis armeabi-v7a`
+when checking an intentionally single-ABI local build. It checks every packaged
+native library, requires 16 KB LOAD alignment for arm64/x86_64, and accepts
+4 KB LOAD alignment for ARMv7.
+
+CI runs the portable core tests as ARMv7 machine code through QEMU with a
+NEON-capable CPU, in addition to building the actual Android JNI/audio bindings.
+ARMv7 uses the existing portable Go JIT for the default `fastest` CPU setting;
+the AArch64 native JIT remains available on arm64. Saved guest state uses the
+guest CPU architecture rather than the host ABI.
+
+Before shipping, exercise the APK on ARMv7 Android 6.0 and the optimized Play
+APK or device APKs generated from its AAB on ARMv7 Android 7.0. Check normal
+document opening, rendering, input, audio, pause/resume, save/load, and an update
+over an existing install. Retest arm64 and x86_64, including a 64-bit device with
+16 KB pages. A desktop x86 emulator does not prove ARMv7 execution. Modern
+Android Emulator releases do not support the old ARM32 system images; use a
+compatible emulator or an ARMv7 device. Old ARM32 emulator images may expose
+only ES 2.0, so they can test the libretro core but cannot validate the standalone
+app's renderer. An ARM translation test on a newer x86 emulator is additional
+coverage, not a replacement for an ARMv7 device with ES 3.0.
+
+The universal sideload APK includes one additional native library, increasing
+download size. Play delivers ABI-specific APKs from the AAB. Large packages and
+firmware can still exhaust memory on low-memory 32-bit devices; runtime support
+does not imply the performance or memory capacity of a recent arm64 handset.
+
+## Document handling
 
 The selected document is copied into the app-private `files/imports`
 directory. ARAM never edits the provider-owned source. Android may grant a

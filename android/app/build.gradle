@@ -4,7 +4,7 @@ plugins {
 
 def aramVersionCode = (System.getenv("ARAM_VERSION_CODE") ?: "1").toInteger()
 def aramVersionName = System.getenv("ARAM_VERSION_NAME") ?: "dev"
-def aramAbis = (System.getenv("ARAM_ANDROID_ABIS") ?: "arm64-v8a,x86_64").split(",")
+def aramAbis = (System.getenv("ARAM_ANDROID_ABIS") ?: "armeabi-v7a,arm64-v8a,x86_64").split(",")
 // Public Google-provided demo identifiers. They are safe to ship in source and
 // are used by every Play debug build. Production values are supplied only to
 // the Play release task through CI environment variables.

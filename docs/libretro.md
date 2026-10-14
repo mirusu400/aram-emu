@@ -4,6 +4,11 @@ ARAM's libretro host is a headless product adapter over `aram-core`. It does not
 import the Ebitengine frontend. The Android artifact uses the portable CPU
 backend and is built as a standard libretro shared object.
 
+This is also the Android path for retro handhelds whose GPU only supports
+OpenGL ES 2.0. ARAM supplies a software framebuffer to RetroArch, so the core
+does not inherit the standalone Ebitengine app's OpenGL ES 3.0 requirement.
+RetroArch and its selected video driver must support the device.
+
 ## Build
 
 Requirements:
@@ -31,16 +36,29 @@ An x86_64 build is available for Android emulators:
 .\scripts\build-libretro-android.ps1 -Abi x86_64
 ```
 
+ARMv7 devices with NEON use the 32-bit core:
+
+```powershell
+.\scripts\build-libretro-android.ps1 -Abi armeabi-v7a
+```
+
+The release archive includes `armeabi-v7a`, `arm64-v8a`, and `x86_64` folders.
+The ARMv7 build sets `GOARM=7` and uses the NDK's ARMv7 compiler; the current
+NDK requires NEON. The build script restores the caller's architecture variables.
+
 ## Device smoke test
 
-The smoke test builds the x86_64 core and a small Android libretro host, pushes
-both through ADB, and exercises the public ABI with a synthetic WIPI image:
+The smoke test builds the selected core and a small Android libretro host,
+pushes both through ADB, and exercises the public ABI with a synthetic WIPI image.
+It defaults to x86_64:
 
 ```powershell
 .\scripts\test-libretro-android.ps1
 ```
 
 Pass `-Serial emulator-5554` when more than one device is connected.
+For ARMv7, use `-Abi armeabi-v7a -Api 23 -Serial <device-serial>`; arm64 uses
+`-Abi arm64-v8a`. The selected ABI must be supported by the device.
 
 ## Controls
 
