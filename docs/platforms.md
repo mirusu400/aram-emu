@@ -8,7 +8,7 @@ CPU backend availability are separate concerns.
 | Windows amd64 | Ebitengine | Icon-bearing executable and native picker | Pure Go; native backend optional | Local executable starts; CI required |
 | Linux amd64 | Ebitengine | Desktop app, X11/Wayland packaging | Pure Go; native backend optional | Headless CI with Xvfb |
 | macOS amd64/arm64 | Ebitengine | Unsigned app bundle; signing/notarization later | Pure Go; native backend optional | Icon-bearing arm64 app bundles in CI |
-| Android arm64 | Ebitengine mobile AAR | Native Activity, SAF, lifecycle, signing | Portable backend required | Branded Nightly (debug key) and Stable (release key) APKs in CI |
+| Android ARMv7/arm64/x86_64 | Ebitengine mobile AAR | Native Activity, SAF, lifecycle, signing | ARMv7 + NEON uses the portable Go JIT; arm64 also offers the native JIT | Branded Nightly and Stable APKs; Play AAB; ARMv7 core tests in QEMU |
 | iOS arm64 | Ebitengine XCFramework | UIKit host, document picker, signing | Portable backend required | Designed, not yet bound in CI |
 | WebAssembly | Optional later | Browser host | Interpreter only | Exploratory, not a release target |
 
@@ -40,7 +40,12 @@ native Android host in `android/` owns:
 - audio focus, controller/touch setup, intents, and background policy;
 - APK/AAB packaging, signing, and store metadata.
 
-CI builds and lints arm64/x86_64 APKs on two channels. Every push to `main`
+CI builds and lints ARMv7/arm64/x86_64 APKs on two channels. ARMv7 requires NEON.
+The standalone Ebitengine app requires OpenGL ES 3.0 on every ABI. For
+ES 2.0-only retro handhelds, the headless [Android libretro core](libretro.md)
+also includes ARMv7 and delegates video output to RetroArch.
+GitHub APKs require Android 6.0 (API 23); the Play flavor requires Android 7.0
+(API 24). Every push to `main`
 produces the rolling Nightly APK (`ARAM Nightly`, application ID
 `io.github.mirusu400.aram.nightly`, `nightly.keystore` signature); a published
 GitHub release produces the Stable APK (`ARAM`, application ID

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("arm64-v8a", "x86_64")]
+    [ValidateSet("armeabi-v7a", "arm64-v8a", "x86_64")]
     [string[]]$Abi = @("arm64-v8a"),
     [ValidateRange(21, 35)]
     [int]$Api = 21
@@ -35,6 +35,7 @@ $toolchain = Join-Path $ndk "toolchains\llvm\prebuilt\windows-x86_64\bin"
 $previous = @{
     GOOS = $env:GOOS
     GOARCH = $env:GOARCH
+    GOARM = $env:GOARM
     CGO_ENABLED = $env:CGO_ENABLED
     CC = $env:CC
     CXX = $env:CXX
@@ -43,6 +44,10 @@ $previous = @{
 try {
     foreach ($target in $Abi) {
         switch ($target) {
+            "armeabi-v7a" {
+                $goarch = "arm"
+                $triple = "armv7a-linux-androideabi"
+            }
             "arm64-v8a" {
                 $goarch = "arm64"
                 $triple = "aarch64-linux-android"
@@ -63,6 +68,7 @@ try {
 
         $env:GOOS = "android"
         $env:GOARCH = $goarch
+        $env:GOARM = if ($goarch -eq "arm") { "7" } else { $null }
         $env:CGO_ENABLED = "1"
         $env:CC = $cc
         $env:CXX = $cxx
@@ -80,6 +86,7 @@ try {
 } finally {
     $env:GOOS = $previous.GOOS
     $env:GOARCH = $previous.GOARCH
+    $env:GOARM = $previous.GOARM
     $env:CGO_ENABLED = $previous.CGO_ENABLED
     $env:CC = $previous.CC
     $env:CXX = $previous.CXX
