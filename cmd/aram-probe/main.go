@@ -91,11 +91,13 @@ type executionResult struct {
 }
 
 type eadsResult struct {
-	Events            []eadsEventResult `json:"events"`
-	PresentCount      uint32            `json:"present_count"`
-	TickMS            uint32            `json:"tick_ms"`
-	TotalInstructions uint64            `json:"total_instructions"`
-	TotalAPICalls     uint64            `json:"total_api_calls"`
+	Events             []eadsEventResult `json:"events"`
+	PresentCount       uint32            `json:"present_count"`
+	TickMS             uint32            `json:"tick_ms"`
+	TotalInstructions  uint64            `json:"total_instructions"`
+	TotalAPICalls      uint64            `json:"total_api_calls"`
+	InputDispatchCount uint64            `json:"input_dispatch_count,omitempty"`
+	InputReleaseCount  uint64            `json:"input_release_count,omitempty"`
 }
 
 type wipiResult struct {
@@ -450,6 +452,12 @@ func hasPresentedGuestFrame(diagnostics integration.Diagnostics) bool {
 }
 
 func updatePostInteractionMilestone(result *probeResult) {
+	if result.EADS != nil && result.InputEvents != 0 && result.EADS.InputDispatchCount == 0 {
+		if result.State == frontend.StateRunning && result.PostFrameSlices != 0 {
+			result.Level = "sustained"
+		}
+		return
+	}
 	if result.Java != nil {
 		// Delivered host input and a framebuffer publication do not prove that
 		// Java guest input handlers changed the expected screen or game state.
@@ -598,11 +606,13 @@ func copyDiagnostics(result *probeResult, diagnostics integration.Diagnostics) {
 	}
 	if diagnostics.EADS != nil {
 		result.EADS = &eadsResult{
-			PresentCount:      diagnostics.EADS.PresentCount,
-			TickMS:            diagnostics.EADS.TickMS,
-			TotalInstructions: diagnostics.EADS.TotalInstructions,
-			TotalAPICalls:     diagnostics.EADS.TotalAPICalls,
-			Events:            make([]eadsEventResult, 0, len(diagnostics.EADS.Events)),
+			PresentCount:       diagnostics.EADS.PresentCount,
+			TickMS:             diagnostics.EADS.TickMS,
+			TotalInstructions:  diagnostics.EADS.TotalInstructions,
+			TotalAPICalls:      diagnostics.EADS.TotalAPICalls,
+			InputDispatchCount: diagnostics.EADS.InputDispatchCount,
+			InputReleaseCount:  diagnostics.EADS.InputReleaseCount,
+			Events:             make([]eadsEventResult, 0, len(diagnostics.EADS.Events)),
 		}
 		for _, event := range diagnostics.EADS.Events {
 			result.EADS.Events = append(result.EADS.Events, eadsEventResult{

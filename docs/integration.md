@@ -46,6 +46,23 @@ through bootstrap, setup, start, preload, and a deterministic first visible
 frame. This is a hash-keyed title-profile milestone, not a claim of generic
 WIPI or multi-title compatibility.
 
+Exact extracted Samsung minigame and Bomb Link records select core-owned OEM
+profiles. Optional pointer input passes through the product router, application
+adapter, and cheat wrapper to the core machine; the frontend maps the displayed
+frame's scale and rotation to guest coordinates. Keypad-only profiles keep their
+existing input contract. EADS interaction diagnostics count completed native
+input handlers rather than queued host events.
+
+The authorized native validation matrix covers all ten minigames in each of the
+W830, W860, and W770 records in both Easy and Hard modes: every case accepts
+ordinary input and increases its native gameplay score. Separate checks cover
+two completed rounds, audible PCM, and purchases surviving reset in the first
+game, plus the egg-grid generation regression. Bomb Link is checked through
+its menu, game board, keypad input, audio, and state restoration. These are
+exact-record results, with no claim that every ending or OEM firmware is supported.
+The 1,093-input compatibility comparison has no changes from the starting
+baseline; preexisting unsupported and faulting inputs remain in the triage report.
+
 ## Command mapping
 
 | Frontend operation | Core/integration responsibility |

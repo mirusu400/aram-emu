@@ -346,6 +346,20 @@ func TestUpdatePostInteractionMilestoneKeepsRunningGVMInteractive(t *testing.T) 
 	}
 }
 
+func TestEADSInteractionRequiresCompletedGuestKeyHandler(t *testing.T) {
+	result := probeResult{Status: "ok_frame", Level: "boots", State: frontend.StateRunning,
+		InputEvents: 2, EADS: &eadsResult{PresentCount: 1}}
+	updatePostInteractionMilestone(&result)
+	if result.Level == "interactive" {
+		t.Fatal("queued host input was reported as guest interaction")
+	}
+	result.EADS.InputDispatchCount = 1
+	updatePostInteractionMilestone(&result)
+	if result.Level != "interactive" {
+		t.Fatal("completed native key handler was not reported")
+	}
+}
+
 func TestCopyDiagnosticsIncludesGVMFrame(t *testing.T) {
 	result := probeResult{}
 	copyDiagnostics(&result, integration.Diagnostics{GVM: &integration.GVMDiagnostics{

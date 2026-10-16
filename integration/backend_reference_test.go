@@ -21,6 +21,12 @@ func TestReferenceRaptorRunsContinuouslyThroughFrontend(t *testing.T) {
 	temporary := t.TempDir()
 	t.Setenv("APPDATA", temporary)
 	t.Setenv("XDG_CONFIG_HOME", temporary)
+	// This headless scheduling test starts a configured product session.
+	// First-run Welcome is a modal panel that intentionally pauses execution;
+	// disable its update-channel setup as a store build does.
+	previousUpdateFlag := frontend.SelfUpdateDisabled
+	frontend.SelfUpdateDisabled = "1"
+	t.Cleanup(func() { frontend.SelfUpdateDisabled = previousUpdateFlag })
 
 	backend := NewBackend(nil)
 	t.Cleanup(func() { _ = backend.Close() })
