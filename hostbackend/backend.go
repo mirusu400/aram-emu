@@ -223,6 +223,19 @@ func (b *Backend) QueueInput(event frontend.InputEvent) error {
 	return nil
 }
 
+func (b *Backend) SupportsPointer() bool {
+	target, ok := b.active.(frontend.PointerBackend)
+	return ok && target.SupportsPointer()
+}
+
+func (b *Backend) QueuePointer(event frontend.PointerInputEvent) error {
+	target, ok := b.active.(frontend.PointerBackend)
+	if !ok || !target.SupportsPointer() {
+		return errors.New("loaded title does not support pointer input")
+	}
+	return target.QueuePointer(event)
+}
+
 // ConfigureAudio, ConfigureFont, and ConfigureCPU record the choice even when
 // the active adapter cannot act on it, so switching to one that can does not
 // need the shell to configure it a second time.

@@ -7,6 +7,7 @@ require (
 	github.com/mirusu400/aram-authd v0.0.0
 	github.com/mirusu400/aram-core v0.0.0
 	github.com/mirusu400/aram-frontend v0.0.0
+	golang.org/x/sys v0.47.0
 )
 
 require (
@@ -30,10 +31,14 @@ require (
 	github.com/posthog/posthog-go v1.25.1 // indirect
 	github.com/randall77/makefat v0.0.0-20210315173500-7ddd0e42c844 // indirect
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
+	golang.design/x/clipboard v0.9.0 // indirect
+	golang.design/x/x11 v0.2.0 // indirect
+	golang.org/x/crypto v0.42.0 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
+	golang.org/x/exp/shiny v0.0.0-20250606033433-dcc06ee1d476 // indirect
 	golang.org/x/image v0.45.0 // indirect
+	golang.org/x/mobile v0.0.0-20250606033058-a2a15c67f36f // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 )
 

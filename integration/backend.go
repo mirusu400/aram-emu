@@ -668,6 +668,21 @@ func (backend *Backend) QueueInput(event frontend.InputEvent) error {
 	})
 }
 
+func (backend *Backend) SupportsPointer() bool {
+	pointer, ok := backend.currentMachine().(aramcore.PointerInputMachine)
+	return ok && pointer.SupportsPointer()
+}
+
+func (backend *Backend) QueuePointer(event frontend.PointerInputEvent) error {
+	pointer, ok := backend.currentMachine().(aramcore.PointerInputMachine)
+	if !ok || !pointer.SupportsPointer() {
+		return errors.New("loaded title does not support pointer input")
+	}
+	return pointer.QueuePointer(aramcore.PointerInputEvent{
+		X: event.X, Y: event.Y, Pressed: event.Pressed, At: event.At,
+	})
+}
+
 func (backend *Backend) ConfigureAudio(settings frontend.AudioSettings) error {
 	if settings.OutputChannels != 0 && settings.OutputChannels != 1 && settings.OutputChannels != 2 {
 		return fmt.Errorf("invalid audio output channel count %d", settings.OutputChannels)

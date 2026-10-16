@@ -96,11 +96,13 @@ type WIPIDiagnostics struct {
 }
 
 type EADSDiagnostics struct {
-	Events            []EADSEventDiagnostics
-	PresentCount      uint32
-	TickMS            uint32
-	TotalInstructions uint64
-	TotalAPICalls     uint64
+	Events             []EADSEventDiagnostics
+	PresentCount       uint32
+	TickMS             uint32
+	TotalInstructions  uint64
+	TotalAPICalls      uint64
+	InputDispatchCount uint64
+	InputReleaseCount  uint64
 }
 
 type EADSEventDiagnostics struct {
@@ -279,9 +281,13 @@ func (backend *Backend) Diagnostics() Diagnostics {
 		stats, present := provider.EADSFrameStats()
 		if present {
 			eads := &EADSDiagnostics{
-				PresentCount: stats.PresentCount,
-				TickMS:       stats.TickMS,
-				Events:       make([]EADSEventDiagnostics, 0, len(stats.Events)),
+				PresentCount:       stats.PresentCount,
+				TickMS:             stats.TickMS,
+				TotalInstructions:  stats.TotalInstructions,
+				TotalAPICalls:      stats.TotalAPICalls,
+				InputDispatchCount: stats.InputDispatchCount,
+				InputReleaseCount:  stats.InputReleaseCount,
+				Events:             make([]EADSEventDiagnostics, 0, len(stats.Events)),
 			}
 			for _, event := range stats.Events {
 				eads.Events = append(eads.Events, EADSEventDiagnostics{
@@ -290,8 +296,6 @@ func (backend *Backend) Diagnostics() Diagnostics {
 					APICalls:     event.APICalls,
 					ReturnValue:  event.ReturnValue,
 				})
-				eads.TotalInstructions += event.Instructions
-				eads.TotalAPICalls += event.APICalls
 			}
 			snapshot.EADS = eads
 		}
