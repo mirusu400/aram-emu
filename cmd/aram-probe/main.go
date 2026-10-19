@@ -37,6 +37,7 @@ type probeResult struct {
 	EADS              *eadsResult           `json:"eads,omitempty"`
 	Java              *javaResult           `json:"java,omitempty"`
 	GVM               *gvmResult            `json:"gvm,omitempty"`
+	PXO               *pxoResult            `json:"pxo,omitempty"`
 	BREW              *brewResult           `json:"brew,omitempty"`
 	Haptics           *hapticsResult        `json:"haptics,omitempty"`
 	TotalInstructions uint64                `json:"total_instructions,omitempty"`
@@ -118,6 +119,13 @@ type wipiResult struct {
 type brewResult struct {
 	PresentCount uint64 `json:"present_count"`
 	FrameValid   bool   `json:"frame_valid"`
+}
+
+type pxoResult struct {
+	PresentCount      uint64 `json:"present_count"`
+	FrameValid        bool   `json:"frame_valid"`
+	FramebufferSHA256 string `json:"framebuffer_sha256,omitempty"`
+	NonUniform        bool   `json:"non_uniform"`
 }
 
 type hapticsResult struct {
@@ -447,6 +455,7 @@ func hasPresentedGuestFrame(diagnostics integration.Diagnostics) bool {
 		(diagnostics.Java != nil && diagnostics.Java.PresentCount > 0 &&
 			diagnostics.Java.FrameValid) ||
 		(diagnostics.GVM != nil && diagnostics.GVM.PresentCount > 0 && diagnostics.GVM.FrameValid) ||
+		(diagnostics.PXO != nil && diagnostics.PXO.PresentCount > 0 && diagnostics.PXO.FrameValid) ||
 		(diagnostics.BREW != nil && diagnostics.BREW.PresentCount > 0 &&
 			diagnostics.BREW.FrameValid)
 }
@@ -586,6 +595,14 @@ func copyDiagnostics(result *probeResult, diagnostics integration.Diagnostics) {
 		result.BREW = &brewResult{
 			PresentCount: diagnostics.BREW.PresentCount,
 			FrameValid:   diagnostics.BREW.FrameValid,
+		}
+	}
+	if pxo := diagnostics.PXO; pxo != nil {
+		result.PXO = &pxoResult{
+			PresentCount:      pxo.PresentCount,
+			FrameValid:        pxo.FrameValid,
+			FramebufferSHA256: pxo.FramebufferSHA256,
+			NonUniform:        pxo.NonUniform,
 		}
 	}
 	if diagnostics.Image != nil {

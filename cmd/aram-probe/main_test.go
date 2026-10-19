@@ -173,6 +173,29 @@ func TestBREWGuestPresentationIsAFrameMilestone(t *testing.T) {
 	}
 }
 
+func TestPXOGuestPresentationIsAFrameMilestone(t *testing.T) {
+	diagnostics := integration.Diagnostics{
+		PXO: &integration.PXODiagnostics{
+			PresentCount: 2, FrameValid: true, NonUniform: true,
+			FramebufferSHA256: "frame-hash",
+		},
+	}
+	if !hasPresentedGuestFrame(diagnostics) {
+		t.Fatal("authenticated PXO1 guest presentation was not recognized")
+	}
+	result := probeResult{}
+	copyDiagnostics(&result, diagnostics)
+	if result.PXO == nil || result.PXO.PresentCount != 2 || !result.PXO.FrameValid ||
+		!result.PXO.NonUniform || result.PXO.FramebufferSHA256 != "frame-hash" {
+		t.Fatalf("copied PXO diagnostics = %+v", result.PXO)
+	}
+	if hasPresentedGuestFrame(integration.Diagnostics{
+		PXO: &integration.PXODiagnostics{PresentCount: 2},
+	}) {
+		t.Fatal("invalid PXO1 framebuffer was recognized as a guest frame")
+	}
+}
+
 func TestJavaGuestPresentationIsAFrameMilestone(t *testing.T) {
 	diagnostics := integration.Diagnostics{
 		Java: &integration.JavaDiagnostics{PresentCount: 3, FrameValid: true},

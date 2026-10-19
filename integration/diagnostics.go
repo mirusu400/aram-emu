@@ -3,6 +3,7 @@ package integration
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"image"
 	"image/color"
 
 	"github.com/mirusu400/aram-core/application"
@@ -22,6 +23,7 @@ type Diagnostics struct {
 	EADS      *EADSDiagnostics
 	Java      *JavaDiagnostics
 	GVM       *GVMDiagnostics
+	PXO       *PXODiagnostics
 	BREW      *BREWDiagnostics
 }
 
@@ -58,6 +60,15 @@ type JavaDiagnostics struct {
 type BREWDiagnostics struct {
 	PresentCount uint64
 	FrameValid   bool
+}
+
+// PXODiagnostics reports an LG PXO1 guest presentation and its converted
+// framebuffer. PresentCount is supplied only by a guest handset-present call.
+type PXODiagnostics struct {
+	PresentCount      uint64
+	FrameValid        bool
+	FramebufferSHA256 string
+	NonUniform        bool
 }
 
 type ImageDiagnostics struct {
@@ -205,26 +216,16 @@ func (backend *Backend) Diagnostics() Diagnostics {
 		snapshot.GVM.PresentCount = provider.GNEX32PresentCount()
 	}
 	if snapshot.GVM != nil {
-		if frame := machine.Framebuffer(); frame != nil {
-			bounds := frame.Bounds()
-			snapshot.GVM.FrameValid = bounds.Dx() > 0 && bounds.Dy() > 0
-			if snapshot.GVM.FrameValid {
-				hash := sha256.New()
-				var first color.RGBA
-				firstSet := false
-				for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-					for x := bounds.Min.X; x < bounds.Max.X; x++ {
-						pixel := color.RGBAModel.Convert(frame.At(x, y)).(color.RGBA)
-						_, _ = hash.Write([]byte{pixel.R, pixel.G, pixel.B, pixel.A})
-						if !firstSet {
-							first, firstSet = pixel, true
-						} else if pixel != first {
-							snapshot.GVM.NonUniform = true
-						}
-					}
-				}
-				snapshot.GVM.FramebufferSHA256 = hex.EncodeToString(hash.Sum(nil))
-			}
+		snapshot.GVM.FrameValid, snapshot.GVM.FramebufferSHA256, snapshot.GVM.NonUniform =
+			frameDiagnostics(machine.Framebuffer())
+	}
+	if provider, ok := machine.(interface{ PXO1PresentCount() uint64 }); ok {
+		valid, frameHash, nonUniform := frameDiagnostics(machine.Framebuffer())
+		snapshot.PXO = &PXODiagnostics{
+			PresentCount:      provider.PXO1PresentCount(),
+			FrameValid:        valid,
+			FramebufferSHA256: frameHash,
+			NonUniform:        nonUniform,
 		}
 	}
 	if provider, ok := machine.(interface {
@@ -301,6 +302,31 @@ func (backend *Backend) Diagnostics() Diagnostics {
 		}
 	}
 	return snapshot
+}
+
+func frameDiagnostics(frame image.Image) (valid bool, frameHash string, nonUniform bool) {
+	if frame == nil {
+		return false, "", false
+	}
+	bounds := frame.Bounds()
+	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
+		return false, "", false
+	}
+	hash := sha256.New()
+	var first color.RGBA
+	firstSet := false
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			pixel := color.RGBAModel.Convert(frame.At(x, y)).(color.RGBA)
+			_, _ = hash.Write([]byte{pixel.R, pixel.G, pixel.B, pixel.A})
+			if !firstSet {
+				first, firstSet = pixel, true
+			} else if pixel != first {
+				nonUniform = true
+			}
+		}
+	}
+	return true, hex.EncodeToString(hash.Sum(nil)), nonUniform
 }
 
 func stopReasonName(reason cpu.StopReason) string {
