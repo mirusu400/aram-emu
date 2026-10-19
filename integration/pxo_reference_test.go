@@ -44,8 +44,14 @@ func TestPXO1OrdinaryProductPath(t *testing.T) {
 				if err := backend.QueueInput(frontend.InputEvent{Control: "down", Pressed: true}); err != nil {
 					t.Fatal(err)
 				}
+				if err := backend.QueueInput(frontend.InputEvent{Control: "down", Pressed: false}); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if err := backend.QueueInput(frontend.InputEvent{Control: "select", Pressed: true}); err != nil {
+				t.Fatal(err)
+			}
+			if err := backend.QueueInput(frontend.InputEvent{Control: "select", Pressed: false}); err != nil {
 				t.Fatal(err)
 			}
 			if err := backend.RunFrame(context.Background()); err != nil {
