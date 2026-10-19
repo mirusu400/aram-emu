@@ -455,11 +455,15 @@ func TestFrontendFileOpenCommandReachesIntegratedEntry(t *testing.T) {
 		case frontend.StateRunning:
 			return
 		case frontend.StateReady:
-			if err := backend.Execute(context.Background(), frontend.CommandStart); err != nil {
+			err := backend.Execute(context.Background(), frontend.CommandStart)
+			state := backend.State()
+			// File/Open auto-starts the loaded title. It can win between the
+			// ready observation above and this explicit entry request.
+			if err != nil && state != frontend.StateRunning {
 				t.Fatal(err)
 			}
-			if backend.State() != frontend.StateRunning {
-				t.Fatalf("state after entry = %s", backend.State())
+			if state != frontend.StateRunning {
+				t.Fatalf("state after entry = %s", state)
 			}
 			return
 		}
