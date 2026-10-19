@@ -143,7 +143,7 @@ void retro_get_system_info(struct retro_system_info *info)
    memset(info, 0, sizeof(*info));
    info->library_name = "ARAM";
    info->library_version = "0.1.0";
-   info->valid_extensions = "dat|jar|zip|elf|bin|wbin|wbt|sgs";
+   info->valid_extensions = "dat|jar|zip|elf|bin|wbin|wbt|sgs|pxo";
    info->need_fullpath = false;
    /* JAR/ZIP containers are inputs themselves, not archives for the frontend
     * to unpack before loading. */
