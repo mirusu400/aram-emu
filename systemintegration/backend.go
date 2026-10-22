@@ -29,6 +29,9 @@ import (
 const (
 	DefaultInstructionsPerFrame     = uint64(1_000_000)
 	DefaultMinimumInputInstructions = uint64(7_000_000)
+	DefaultRewindIntervalFrames     = uint64(300)
+	DefaultRewindCapacity           = 12
+	DefaultRewindMemoryLimitBytes   = uint64(256 << 20)
 	mediaSchemaVersion              = uint32(1)
 	maxMediaBuildIDBytes            = uint32(4 * 1024)
 	maxMediaSectionBytes            = uint64(2 << 30)
@@ -46,6 +49,8 @@ type systemMachine interface {
 	Framebuffer() image.Image
 	FrameSHA256() string
 	PowerCycle() error
+	SaveSnapshot() (systemmachine.Snapshot, error)
+	LoadSnapshot(systemmachine.Snapshot) error
 	SaveMedia() (systemmachine.MediaState, error)
 	LoadMedia(systemmachine.MediaState) error
 	Close() error
@@ -68,7 +73,14 @@ type Options struct {
 	// callers compiled against the older API; CPUBackend takes precedence.
 	CPUBackendMode          systemmachine.CPUBackendMode
 	MediaRoot               string
+	StateRoot               string
 	DisableMediaPersistence bool
+	// RewindIntervalFrames controls how often a running machine is checkpointed.
+	// RewindCapacity and RewindMemoryLimitBytes bound the in-memory history.
+	// Zero values select the product defaults.
+	RewindIntervalFrames   uint64
+	RewindCapacity         int
+	RewindMemoryLimitBytes uint64
 
 	newMachine machineFactory
 }
@@ -90,11 +102,17 @@ type Backend struct {
 	mediaWarning        string
 	mediaRestoreFailed  bool
 	mediaRestorePending bool
+	stateRoot           string
 	controls            map[string]bool
 	frameHash           string
 	frameSequence       uint64
 	inputSources        map[string]string
 	inputHolds          map[string]inputHold
+	rewindHistory       []rewindEntry
+	rewindBytes         uint64
+	rewindFrames        uint64
+	rewindBranchAnchor  bool
+	rewindUnavailable   string
 }
 
 type inputHold struct {
@@ -110,6 +128,15 @@ func NewBackend(options Options) *Backend {
 	if options.MinimumInputInstructions == 0 {
 		options.MinimumInputInstructions = DefaultMinimumInputInstructions
 	}
+	if options.RewindIntervalFrames == 0 {
+		options.RewindIntervalFrames = DefaultRewindIntervalFrames
+	}
+	if options.RewindCapacity <= 0 {
+		options.RewindCapacity = DefaultRewindCapacity
+	}
+	if options.RewindMemoryLimitBytes == 0 {
+		options.RewindMemoryLimitBytes = DefaultRewindMemoryLimitBytes
+	}
 	if options.CPUBackend == "" && options.CPUBackendMode == "" {
 		options.CPUBackend = application.FastestBackend
 	}
@@ -120,6 +147,7 @@ func NewBackend(options Options) *Backend {
 	}
 	return &Backend{
 		options:      options,
+		stateRoot:    options.StateRoot,
 		state:        frontend.StateEmpty,
 		inputSources: make(map[string]string),
 		inputHolds:   make(map[string]inputHold),
@@ -236,6 +264,7 @@ func (backend *Backend) OpenWithProgress(
 	backend.frameHash = ""
 	backend.frameSequence = 0
 	backend.resetInputState()
+	backend.resetRewindHistoryLocked()
 	backend.mu.Unlock()
 
 	if oldMachine != nil {
@@ -410,9 +439,22 @@ func (backend *Backend) Capability(command frontend.BackendCommand) frontend.Cap
 	case frontend.CommandFastForward:
 		return frontend.Capability{Reason: "Whole-phone fast-forward is not calibrated yet"}
 	case frontend.CommandLoadState, frontend.CommandSaveState:
-		return frontend.Capability{Reason: "Whole-phone save states are not exposed by this adapter yet"}
+		supported = state != frontend.StateEmpty
 	case frontend.CommandRewind:
-		return frontend.Capability{Reason: "Whole-phone rewind history is not implemented yet"}
+		if state == frontend.StateEmpty {
+			break
+		}
+		backend.mu.RLock()
+		history := len(backend.rewindHistory)
+		reason := backend.rewindUnavailable
+		backend.mu.RUnlock()
+		if history == 0 {
+			if reason == "" {
+				reason = "Whole-phone rewind history is not ready yet"
+			}
+			return frontend.Capability{Reason: reason}
+		}
+		supported = true
 	default:
 		return frontend.Capability{Reason: "Unknown backend command"}
 	}
@@ -460,13 +502,46 @@ func (backend *Backend) ExecuteCommand(
 		err = machine.PowerCycle()
 		if err == nil {
 			backend.resetInputState()
+			backend.resetRewindHistory()
 			backend.setState(frontend.StateReady)
 			backend.resetFrameIdentity()
 		}
 	case frontend.CommandFrame:
 		err = backend.runMachineFrame(machine)
+	case frontend.CommandSaveState:
+		err = backend.saveState(machine, request.Slot)
+	case frontend.CommandLoadState:
+		resume := backend.State() == frontend.StateRunning
+		err = backend.loadState(machine, request.Slot)
+		if err == nil {
+			backend.resetInputState()
+			backend.resetRewindHistory()
+			backend.resetFrameIdentity()
+			if resume {
+				backend.setState(frontend.StateRunning)
+			} else {
+				backend.setState(frontend.StatePaused)
+			}
+		}
+	case frontend.CommandRewind:
+		resume := backend.State() == frontend.StateRunning
+		err = backend.rewind(machine)
+		if err == nil {
+			backend.resetInputState()
+			backend.resetFrameIdentity()
+			if resume {
+				backend.setState(frontend.StateRunning)
+			} else {
+				backend.setState(frontend.StatePaused)
+			}
+		}
 	}
 	if err != nil {
+		if request.Command == frontend.CommandSaveState ||
+			request.Command == frontend.CommandLoadState ||
+			request.Command == frontend.CommandRewind {
+			return systemBackendError(frontend.FailureUnknown, err)
+		}
 		backend.setState(frontend.StateFaulted)
 		return systemBackendError(frontend.FailureGuestFaulted, err)
 	}
@@ -496,10 +571,12 @@ func (backend *Backend) runMachineFrame(machine systemMachine) error {
 }
 
 func (backend *Backend) runMachineFrameContext(ctx context.Context, machine systemMachine) error {
+	backend.captureRewindCheckpoint(machine)
 	result := machine.Run(ctx, backend.options.InstructionsPerFrame)
 	if result.Err != nil {
 		return result.Err
 	}
+	backend.noteRewindFrame()
 	if err := backend.flushInputReleases(machine); err != nil {
 		return err
 	}
@@ -708,6 +785,7 @@ func (backend *Backend) Close() error {
 	backend.frameHash = ""
 	backend.frameSequence = 0
 	backend.resetInputState()
+	backend.resetRewindHistoryLocked()
 	backend.mu.Unlock()
 
 	if machine != nil {

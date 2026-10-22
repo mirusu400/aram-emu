@@ -3,6 +3,7 @@ package systemintegration
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"image"
 	"image/color"
 	"os"
@@ -17,13 +18,14 @@ import (
 )
 
 type fakeSystemMachine struct {
-	position    systemmachine.Position
-	frame       *image.RGBA
-	frameHash   string
-	lastControl string
-	lastPressed bool
-	media       systemmachine.MediaState
-	closed      bool
+	position      systemmachine.Position
+	frame         *image.RGBA
+	frameHash     string
+	lastControl   string
+	lastPressed   bool
+	media         systemmachine.MediaState
+	snapshotLoads int
+	closed        bool
 }
 
 func newFakeSystemMachine() *fakeSystemMachine {
@@ -75,6 +77,40 @@ func (machine *fakeSystemMachine) Framebuffer() image.Image { return machine.fra
 func (machine *fakeSystemMachine) FrameSHA256() string      { return machine.frameHash }
 func (machine *fakeSystemMachine) PowerCycle() error {
 	machine.position = systemmachine.Position{}
+	return nil
+}
+func (machine *fakeSystemMachine) SaveSnapshot() (systemmachine.Snapshot, error) {
+	state := make([]byte, 16)
+	binary.LittleEndian.PutUint32(state[0:4], machine.position.PC)
+	binary.LittleEndian.PutUint64(state[4:12], machine.position.Instructions)
+	state[12] = byte(machine.position.Mode)
+	identity := machine.Identity()
+	return systemmachine.Snapshot{
+		Schema:          systemmachine.SnapshotSchema,
+		FirmwareBuildID: identity.FirmwareBuildID,
+		BoardID:         identity.BoardID,
+		PlatformID:      identity.PlatformID,
+		CPUIdentity:     identity.CPU,
+		CPU:             state,
+		Bus:             []byte("fake-bus-state"),
+		Flash:           append([]byte(nil), machine.media.Flash...),
+		Instructions:    machine.position.Instructions,
+	}, nil
+}
+func (machine *fakeSystemMachine) LoadSnapshot(snapshot systemmachine.Snapshot) error {
+	identity := machine.Identity()
+	if snapshot.Schema != systemmachine.SnapshotSchema ||
+		snapshot.FirmwareBuildID != identity.FirmwareBuildID ||
+		snapshot.BoardID != identity.BoardID ||
+		snapshot.PlatformID != identity.PlatformID ||
+		snapshot.CPUIdentity != identity.CPU || len(snapshot.CPU) != 16 {
+		return systemmachine.ErrIncompatibleState
+	}
+	machine.position.PC = binary.LittleEndian.Uint32(snapshot.CPU[0:4])
+	machine.position.Instructions = binary.LittleEndian.Uint64(snapshot.CPU[4:12])
+	machine.position.Mode = cpu.Mode(snapshot.CPU[12])
+	machine.media.Flash = append([]byte(nil), snapshot.Flash...)
+	machine.snapshotLoads++
 	return nil
 }
 func (machine *fakeSystemMachine) SaveMedia() (systemmachine.MediaState, error) {
