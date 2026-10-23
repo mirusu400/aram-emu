@@ -223,6 +223,15 @@ func (b *Backend) QueueInput(event frontend.InputEvent) error {
 	return nil
 }
 
+func (b *Backend) ReceiveHostEvent(event frontend.HostEvent) error {
+	if target, ok := b.active.(frontend.HostEventReceiver); ok {
+		return target.ReceiveHostEvent(event)
+	}
+	return frontend.ErrHostEventUnsupported
+}
+
+var _ frontend.HostEventReceiver = (*Backend)(nil)
+
 func (b *Backend) SupportsPointer() bool {
 	target, ok := b.active.(frontend.PointerBackend)
 	return ok && target.SupportsPointer()

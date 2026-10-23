@@ -252,6 +252,46 @@ func PressControl(control string, down bool) {
 	game.instance().SetHostControl(control, down)
 }
 
+// ReceiveNetwork delivers one provider-owned packet to the running title. The
+// returned string is empty on success and suitable for a native error UI.
+func ReceiveNetwork(data []byte) string {
+	return receiveHostEvent(frontend.HostEvent{
+		Kind: frontend.HostEventNetworkReceive,
+		Data: data,
+	})
+}
+
+// ReceiveSerial delivers a handset serial notification as swData..swData3.
+func ReceiveSerial(value0, value1, value2, value3 int64) string {
+	event, err := hostEventWithWords(
+		frontend.HostEventSerialReceive,
+		value0, value1, value2, value3,
+	)
+	if err != nil {
+		return err.Error()
+	}
+	return receiveHostEvent(event)
+}
+
+// ReceiveSMS delivers a handset SMS notification as swData..swData3.
+func ReceiveSMS(value0, value1, value2, value3 int64) string {
+	event, err := hostEventWithWords(
+		frontend.HostEventSMSReceive,
+		value0, value1, value2, value3,
+	)
+	if err != nil {
+		return err.Error()
+	}
+	return receiveHostEvent(event)
+}
+
+func receiveHostEvent(event frontend.HostEvent) string {
+	if err := game.instance().ReceiveHostEvent(event); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 // SetSecondaryKeypadActive tells the frontend whether a second physical panel
 // is currently showing the keypad. While active the shell hides its on-screen
 // control deck and keypad so the game panel is unobstructed.

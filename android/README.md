@@ -49,6 +49,14 @@ Run these commands from the `aram-emu` repository root with the required sibling
 checkouts from `go.work` present. The binder version is read from the product's
 Go module, as in CI, because its Java glue must match the linked Ebitengine API.
 
+The generated `Mobile` class also exposes synchronous native-provider ingress:
+`receiveNetwork(byte[])`, `receiveSerial(long, long, long, long)`, and
+`receiveSMS(long, long, long, long)`. Each returns an empty string on success or
+a displayable error. Provider callbacks may invoke them off the Android UI
+thread; the integration adapter serializes delivery with guest lifecycle and
+frame execution. Android permissions and the choice of socket, SMS, or serial
+provider remain owned by the native host.
+
 The Gradle build derives its density-specific and adaptive launcher icons from
 `../aram-frontend/frontend/assets/icon.png`, the same pinned artwork used by
 the desktop window. Set `ARAM_ICON_SOURCE` to an absolute PNG path only when

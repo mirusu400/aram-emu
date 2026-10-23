@@ -21,6 +21,7 @@ type recordingAdapter struct {
 	frames   int
 	closeErr error
 	icons    []string
+	host     []frontend.HostEvent
 }
 
 // Icon records the requested path and returns bytes tagged with this adapter's
@@ -69,6 +70,11 @@ func (a *recordingAdapter) RunFrame(context.Context) error {
 	return nil
 }
 
+func (a *recordingAdapter) ReceiveHostEvent(event frontend.HostEvent) error {
+	a.host = append(a.host, event)
+	return nil
+}
+
 func (a *recordingAdapter) BackendName() string { return a.name }
 
 // plainAdapter implements only the required contract, so the forwarding paths
@@ -106,6 +112,29 @@ func TestOpenRoutesByRequestKind(t *testing.T) {
 	}
 	if backend.BackendName() != "system" {
 		t.Fatalf("active adapter after a firmware open = %q", backend.BackendName())
+	}
+}
+
+func TestHostEventRoutesToActiveAdapter(t *testing.T) {
+	backend, application, system := newTestBackend()
+	event := frontend.HostEvent{
+		Kind:  frontend.HostEventSMSReceive,
+		Words: [4]uint32{1, 2, 3, 4},
+	}
+	if err := backend.ReceiveHostEvent(event); err != nil {
+		t.Fatal(err)
+	}
+	if len(application.host) != 1 || len(system.host) != 0 {
+		t.Fatalf("application host events = %d, system = %d", len(application.host), len(system.host))
+	}
+	if _, err := backend.Open(context.Background(), frontend.OpenRequest{Firmware: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.ReceiveHostEvent(event); err != nil {
+		t.Fatal(err)
+	}
+	if len(system.host) != 1 {
+		t.Fatalf("system host events = %d", len(system.host))
 	}
 }
 

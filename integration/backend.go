@@ -668,6 +668,46 @@ func (backend *Backend) QueueInput(event frontend.InputEvent) error {
 	})
 }
 
+// ReceiveHostEvent bridges native handset providers to the optional core
+// ingress contract. The lifecycle lock keeps delivery ordered with frame and
+// command execution, including title replacement and shutdown.
+func (backend *Backend) ReceiveHostEvent(event frontend.HostEvent) error {
+	if err := event.Validate(); err != nil {
+		return err
+	}
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+	machine := backend.currentMachine()
+	if machine == nil {
+		return backendError(
+			frontend.FailureBackendUnavailable,
+			errors.New("no aram-core machine is loaded"),
+		)
+	}
+	receiver, ok := machine.(aramcore.HostEventReceiver)
+	if !ok {
+		return frontend.ErrHostEventUnsupported
+	}
+	var kind aramcore.HostEventKind
+	switch event.Kind {
+	case frontend.HostEventNetworkReceive:
+		kind = aramcore.HostEventNetworkReceive
+	case frontend.HostEventSerialReceive:
+		kind = aramcore.HostEventSerialReceive
+	case frontend.HostEventSMSReceive:
+		kind = aramcore.HostEventSMSReceive
+	default:
+		panic("validated frontend host event kind is unhandled")
+	}
+	return receiver.ReceiveHostEvent(aramcore.HostEvent{
+		Kind:  kind,
+		Data:  append([]byte(nil), event.Data...),
+		Words: event.Words,
+	})
+}
+
+var _ frontend.HostEventReceiver = (*Backend)(nil)
+
 func (backend *Backend) SupportsPointer() bool {
 	pointer, ok := backend.currentMachine().(aramcore.PointerInputMachine)
 	return ok && pointer.SupportsPointer()
