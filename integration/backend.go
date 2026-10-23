@@ -70,13 +70,17 @@ type Backend struct {
 	// device-native geometry. Applied when the next machine is created.
 	displayWidth  int
 	displayHeight int
+	network       *networkTransport
 }
 
 func NewBackend(factory aramcore.Factory) *Backend {
 	if factory == nil {
 		factory = productconfig.ApplicationFactory()
 	}
-	backend := &Backend{factory: factory, cheatStore: newCheatCatalogStore()}
+	backend := &Backend{
+		factory: factory, cheatStore: newCheatCatalogStore(),
+		network: newNetworkTransport(nil),
+	}
 	// Experimental widescreen: a dev-only env default for the guest framebuffer
 	// geometry. The frontend's Experiments panel overrides this at runtime via
 	// ConfigureDisplay; both flow through factoryForCreate.
@@ -213,6 +217,7 @@ func (backend *Backend) OpenWithProgress(
 		}
 		return info, backendError(frontend.FailureUnknown, err)
 	}
+	backend.network.reset()
 
 	backend.mu.Lock()
 	oldMachine := backend.machine
@@ -528,6 +533,7 @@ func (backend *Backend) ExecuteCommand(
 	case frontend.CommandStart:
 		if machine.State() == aramcore.StateStopped {
 			backend.invalidateMemoryTool()
+			backend.network.reset()
 			// The guest ended (for example a first-run Clet's MC_knlExit).
 			// Re-bootstrap it — preserving the title's writable storage — so
 			// Start restarts an exited title instead of doing nothing. The
@@ -540,6 +546,9 @@ func (backend *Backend) ExecuteCommand(
 			}
 		}
 		err = machine.Start(ctx)
+		if err == nil {
+			err = backend.network.sync(machine)
+		}
 		if err == nil {
 			backend.setRunRequested(machineCanContinue(machine.State()))
 			if !machineCanContinue(machine.State()) {
@@ -556,6 +565,7 @@ func (backend *Backend) ExecuteCommand(
 		backend.invalidateMemoryTool()
 		backend.setRunRequested(false)
 		err = machine.Stop()
+		backend.network.reset()
 		if err == nil {
 			err = backend.persistSaveData(machine, backend.currentInputHash())
 		}
@@ -565,9 +575,16 @@ func (backend *Backend) ExecuteCommand(
 		// Capture the current writable storage before the reset re-bootstraps
 		// the guest, so a save written this run is not lost on restart.
 		persistErr := backend.persistSaveData(machine, backend.currentInputHash())
+		backend.network.reset()
 		err = errors.Join(persistErr, machine.Reset(ctx))
 	case frontend.CommandFrame:
-		err = machine.StepFrame(ctx)
+		err = backend.network.sync(machine)
+		if err == nil && machineCanContinue(machine.State()) {
+			err = machine.StepFrame(ctx)
+		}
+		if err == nil {
+			err = backend.network.sync(machine)
+		}
 		if err == nil && !machineCanContinue(machine.State()) {
 			backend.invalidateMemoryTool()
 		}
@@ -581,6 +598,7 @@ func (backend *Backend) ExecuteCommand(
 		// machine is unchanged and it is safe to keep running.
 		resume := backend.runningRequested()
 		if err = backend.loadState(request.Slot); err == nil {
+			backend.network.reset()
 			backend.setRunRequested(resume && machineCanContinue(machine.State()))
 		}
 	default:
@@ -609,7 +627,20 @@ func (backend *Backend) RunFrame(ctx context.Context) error {
 			errors.New("no aram-core machine is loaded"),
 		)
 	}
+	if err := backend.network.sync(machine); err != nil {
+		backend.setRunRequested(false)
+		return backendError(classifyMachineError(machine, err), err)
+	}
+	if !machineCanContinue(machine.State()) {
+		backend.invalidateMemoryTool()
+		backend.setRunRequested(false)
+		return nil
+	}
 	if err := machine.StepFrame(ctx); err != nil {
+		backend.setRunRequested(false)
+		return backendError(classifyMachineError(machine, err), err)
+	}
+	if err := backend.network.sync(machine); err != nil {
 		backend.setRunRequested(false)
 		return backendError(classifyMachineError(machine, err), err)
 	}
@@ -1012,6 +1043,7 @@ func (backend *Backend) Close() error {
 			return err
 		}
 	}
+	backend.network.reset()
 	backend.mu.Lock()
 	backend.machine = nil
 	backend.sourceFile = nil
