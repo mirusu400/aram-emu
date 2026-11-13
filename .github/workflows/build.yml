@@ -662,6 +662,7 @@ jobs:
           echo "R8 renamed ${renamed_classes} classes; removed code is recorded in ${usage}."
           mkdir -p dist
           cp "${aab}" dist/aram-google-play.aab
+          cp "${mapping}" dist/aram-google-play-mapping.txt
 
       - name: Upload Google Play AAB
         if: >-
@@ -671,6 +672,17 @@ jobs:
         with:
           name: aram-google-play
           path: aram-emu/dist/aram-google-play.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Google Play deobfuscation mapping
+        if: >-
+          github.event_name == 'release' ||
+          (github.event_name == 'workflow_dispatch' && inputs.play_release_candidate)
+        uses: actions/upload-artifact@v7
+        with:
+          name: google-play-deobfuscation
+          path: aram-emu/dist/aram-google-play-mapping.txt
           if-no-files-found: error
           retention-days: 14
 
@@ -1209,3 +1221,79 @@ jobs:
             -F event_type=release-published \
             -F "client_payload[tag]=${RELEASE_TAG}"
           echo "Signaled aram-website to publish the ${RELEASE_TAG} release article."
+
+  publish-google-play:
+    name: Publish Google Play production release
+    if: github.event_name == 'release' && github.event.release.tag_name != 'nightly'
+    needs:
+      - android
+      - publish-stable
+    runs-on: ubuntu-latest
+    environment: google-play-production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Download Google Play AAB
+        uses: actions/download-artifact@v8
+        with:
+          name: aram-google-play
+          path: play-assets
+
+      - name: Download Google Play deobfuscation mapping
+        uses: actions/download-artifact@v8
+        with:
+          name: google-play-deobfuscation
+          path: play-assets
+
+      - name: Verify Google Play publishing configuration
+        shell: bash
+        env:
+          WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GOOGLE_PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          SERVICE_ACCOUNT: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+        run: |
+          test -n "${WORKLOAD_IDENTITY_PROVIDER}" || {
+            echo "GOOGLE_PLAY_WORKLOAD_IDENTITY_PROVIDER is not configured" >&2
+            exit 1
+          }
+          test -n "${SERVICE_ACCOUNT}" || {
+            echo "GOOGLE_PLAY_SERVICE_ACCOUNT is not configured" >&2
+            exit 1
+          }
+          test -s play-assets/aram-google-play.aab
+          test -s play-assets/aram-google-play-mapping.txt
+          test -s store/play/whats-new-en-US.txt
+          test -s store/play/whats-new-ko-KR.txt
+
+      - name: Authenticate to Google Play
+        id: google-auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GOOGLE_PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+
+      - name: Publish AAB to Google Play
+        shell: bash
+        env:
+          GOOGLE_PLAY_ACCESS_TOKEN: ${{ steps.google-auth.outputs.access_token }}
+          GOOGLE_PLAY_TRACK: ${{ vars.GOOGLE_PLAY_TRACK || 'production' }}
+          GOOGLE_PLAY_RELEASE_STATUS: ${{ vars.GOOGLE_PLAY_RELEASE_STATUS || 'completed' }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 scripts/publish_google_play.py \
+            --package-name io.github.mirusu400.aram \
+            --aab play-assets/aram-google-play.aab \
+            --mapping play-assets/aram-google-play-mapping.txt \
+            --track "${GOOGLE_PLAY_TRACK}" \
+            --status "${GOOGLE_PLAY_RELEASE_STATUS}" \
+            --release-name "${RELEASE_TAG}" \
+            --release-note en-US=store/play/whats-new-en-US.txt \
+            --release-note ko-KR=store/play/whats-new-ko-KR.txt

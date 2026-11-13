@@ -1,3 +1,4 @@
-Raised the Play build's minimum Android version to 7.0 for automatic protection.
-Fixed a crash when opening the app.
-Includes game shortcuts and compatibility improvements.
+Expanded compatibility for LG PXO1 and SKT GNEX/GVM games.
+Improved KTF, LGT Raptor, and BREW runtime stability.
+Added native text input and confirmation for guest-requested external actions.
+Improved SMAF audio playback and runtime performance.

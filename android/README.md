@@ -179,7 +179,43 @@ For a published `vX.Y.Z` GitHub release, CI sets the Android APK and Play AAB
 `versionName` to `X.Y.Z`. The `versionCode` is the build workflow's increasing
 run number; verify it exceeds the highest code already uploaded in Play Console
 before publishing a new release. The Play AAB is attached to the GitHub release
-after the release workflow succeeds, for manual upload to Play Console.
+and published through the Google Play Developer API after every required release
+gate succeeds.
+
+### Automated Play Store publishing
+
+The release workflow uploads the verified Play AAB, its R8 deobfuscation mapping,
+and the localized `store/play/whats-new-*.txt` notes. It then assigns the bundle
+to the configured track. It does not replace screenshots or the full store
+listing.
+
+Authentication uses GitHub OIDC and Workload Identity Federation instead of a
+long-lived service-account key. Configure it once before publishing a stable
+GitHub release:
+
+1. Enable the Google Play Developer API in a Google Cloud project, create a
+   service account, and invite that account from Play Console **Users and
+   permissions**. Grant only the app-level permissions required to manage and
+   publish production releases for `io.github.mirusu400.aram`.
+2. Configure a GitHub OIDC Workload Identity Provider restricted to the
+   `mirusu400/aram-emu` repository, then grant that repository principal
+   `roles/iam.workloadIdentityUser` on the service account.
+3. Create the GitHub environment `google-play-production` and define these
+   environment variables:
+   - `GOOGLE_PLAY_WORKLOAD_IDENTITY_PROVIDER`: the full provider resource name
+   - `GOOGLE_PLAY_SERVICE_ACCOUNT`: the service-account email
+   - `GOOGLE_PLAY_TRACK` (optional): defaults to `production`
+   - `GOOGLE_PLAY_RELEASE_STATUS` (optional): `completed` by default; use
+     `draft` to upload without serving the release
+4. Optionally require reviewers on the `google-play-production` environment if
+   production rollout should pause for human approval.
+5. Update both localized `store/play/whats-new-*.txt` files before each stable
+   release. Google Play limits each locale to 500 characters; CI validates this.
+
+Publishing is transactional. CI refuses to overwrite an existing draft, halted,
+or staged rollout, uploads the AAB and R8 mapping in one Play edit, and commits
+with `ERROR_IF_IN_REVIEW` so it cannot silently cancel changes already in review.
+If a step fails, CI attempts to delete the incomplete edit.
 
 The Play flavor requires Android 7.0 (API 24) or newer for Google Play automatic
 protection. GitHub Stable and Nightly builds still support Android 6.0 (API 23).
@@ -198,7 +234,7 @@ the app does not add broad keep rules that would defeat DEX shrinking or
 obfuscation. CI requires non-empty R8 mapping and removed-code reports and at
 least one renamed class before accepting a Play AAB. A manual `build` workflow
 run with `play_release_candidate` enabled exercises the signed Play release
-path without creating a public GitHub release.
+path without creating a public GitHub release or calling the Play publishing API.
 
 Frontend settings and working artifact files use the app-private
 `files/config` directory. The Activity initializes the Go runtime context and
