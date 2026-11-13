@@ -4,6 +4,45 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/)를 따르며,
 버전은 [유의적 버전](https://semver.org/lang/ko/)을 사용합니다.
 
+## [0.6.0] - 2026-11-13
+
+LG PXO1 게임을 제품 실행 경로에 연결하고 SKT GNEX/GVM, KTF WIPI/Clet,
+LGT Raptor·J2ME와 BREW 게임의 실행 범위를 넓혔습니다. 게스트의 텍스트 입력과
+브라우저·전화·문자 요청을 호스트에 안전하게 전달하고, SMAF 오디오 재현과
+실행 성능도 개선했습니다.
+
+### 호환성
+- LG PXO1 패키지를 일반 제품 경로와 libretro·진단 프로브에서 인식하고 실행
+- SKT GNEX/GVM 검증 대상을 12개 늘리고 화면, 방향키, 타이머, 저장 데이터
+  내보내기와 오류 처리 개선
+- GNEX32의 오디오, 이미지·문자열, 키 입력, 사용자 저장소, 세이브 스테이트와
+  비동기 네트워크 서비스 보강
+- KTF WIPI/Clet의 타이머, 입력 이벤트, Java 런타임과 오프라인 인증 경로를
+  개선해 일부 게임의 시작 진행 범위 확대
+- LGT Raptor·J2ME와 BREW/EADS 게임의 화면 크기, 이미지·한글 문자열, 키 반복,
+  콜백과 오프라인 응답 처리 개선
+- 시스템 모드 펌웨어 부팅 전환 시 CPU 상태 동기화 수정
+
+게임별 검증 단계는 서로 다르며, 위 결과가 각 형식 전체의 호환성을 의미하지는
+않습니다.
+
+### 입력 및 플랫폼
+- 게스트 텍스트 필드에 포커스가 오면 Android 네이티브 입력 창을 표시하고
+  입력 결과를 게임에 전달
+- 게스트의 브라우저 열기·전화·문자 요청을 사용자 확인 뒤 운영체제에 전달
+- 모바일 빠른 동작을 네이티브 호스트 이벤트로 연결하고 Android 터치 조작
+  오버레이를 기본적으로 숨기도록 변경
+
+### 오디오 및 성능
+- Yamaha SMAF MA-1·MA-2·MA-3·MA-5의 FM 음색, 드럼 뱅크, 모듈레이션,
+  피치 벤드와 음량 처리 개선
+- 오디오 큐의 대기·리샘플링 비용과 KTF 가비지 컬렉션·화면 갱신 비용 절감
+- ARM/Thumb 인터프리터의 반복 메모리 접근과 반환 경로 최적화
+
+### 포함 구성요소
+- core `46dfb87`, frontend `7a0216f`, authd `4053607`
+- RG DS Ebitengine fork `4701562`, test runner `4206f63`
+
 ## [0.4.3] - 2026-10-02
 
 Google Play 자동 보호의 최소 SDK 요구 조건을 충족하도록 Play 배포판의 최소
@@ -186,6 +225,7 @@ BREW·GVM 지원은 게임별로 검증 단계가 다릅니다. 특정 게임의
 
 - 최초 공개 릴리스
 
+[0.6.0]: https://github.com/mirusu400/aram-emu/compare/v0.5.0...v0.6.0
 [0.4.3]: https://github.com/mirusu400/aram-emu/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/mirusu400/aram-emu/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/mirusu400/aram-emu/compare/v0.4.0...v0.4.1
