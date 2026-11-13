@@ -103,6 +103,8 @@ type Host interface {
 	// The native host persists the private path and puts only an opaque ID in
 	// the launcher intent.
 	PinGameShortcut(path, title string, iconPNG []byte) error
+	// OpenURL hands an approved HTTP(S) guest link to the system browser.
+	OpenURL(rawURL string) error
 }
 
 // PerformanceHost receives callbacks on the actual locked emulation/audio OS
@@ -178,12 +180,14 @@ func SetHost(host Host) {
 		frontend.SetNativeTextInputHost(nil)
 		frontend.SetNativeShareHost(nil)
 		frontend.SetNativeShortcutHost(nil)
+		frontend.SetNativeURLHost(nil)
 		return
 	}
 	frontend.SetNativePickerHost(host)
 	frontend.SetNativeTextInputHost(host)
 	frontend.SetNativeShareHost(host)
 	frontend.SetNativeShortcutHost(host)
+	frontend.SetNativeURLHost(host)
 }
 
 // SubmitTextInput reports the text the native editor accepted for the field

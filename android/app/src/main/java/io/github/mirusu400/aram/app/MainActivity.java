@@ -58,6 +58,7 @@ import java.util.UUID;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -340,6 +341,73 @@ public final class MainActivity extends Activity
             );
             startActivityForResult(intent, REQUEST_DOCUMENT);
         });
+    }
+
+    /** Opens a frontend-approved web link in the user's browser. */
+    @Override
+    public void openURL(String rawURL) throws Exception {
+        if (rawURL == null || !rawURL.equals(rawURL.trim())) {
+            throw new IOException("the link is empty or contains outer whitespace");
+        }
+        Uri uri = Uri.parse(rawURL);
+        String scheme = uri.getScheme();
+        if (scheme == null
+                || !("http".equalsIgnoreCase(scheme)
+                || "https".equalsIgnoreCase(scheme))
+                || uri.isOpaque()
+                || uri.getHost() == null
+                || uri.getHost().isEmpty()
+                || uri.getUserInfo() != null) {
+            throw new IOException(
+                    "only HTTP(S) links with a host and no credentials can be opened"
+            );
+        }
+        Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+        CountDownLatch opened = new CountDownLatch(1);
+        IOException[] failure = new IOException[1];
+        Runnable open = () -> {
+            try {
+                if (isFinishing() || isDestroyed()) {
+                    throw new IllegalStateException("the activity is not available");
+                }
+                startActivity(intent);
+            } catch (RuntimeException error) {
+                failure[0] = new IOException(
+                        error.getMessage() == null
+                                ? "could not open the link"
+                                : error.getMessage(),
+                        error
+                );
+            } finally {
+                opened.countDown();
+            }
+        };
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            open.run();
+        } else {
+            if (!mainHandler.post(open)) {
+                throw new IOException("the Android UI thread is not available");
+            }
+            boolean interrupted = false;
+            for (;;) {
+                try {
+                    opened.await();
+                    break;
+                } catch (InterruptedException ignored) {
+                    // Once the UI action is posted, returning an interruption
+                    // as failure could leave the link opening later while the
+                    // frontend retains the request and offers a duplicate
+                    // retry. Collect the real dispatch result first instead.
+                    interrupted = true;
+                }
+            }
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        if (failure[0] != null) {
+            throw failure[0];
+        }
     }
 
     private static String normalizeDocumentKind(String kind) {

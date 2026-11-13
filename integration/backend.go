@@ -668,6 +668,44 @@ func (backend *Backend) QueueInput(event frontend.InputEvent) error {
 	})
 }
 
+// ExternalRequests returns a detached snapshot of guest-requested handset
+// actions. operationMu keeps the snapshot tied to the same loaded machine as a
+// concurrent frame, close, or replacement.
+func (backend *Backend) ExternalRequests() []frontend.ExternalRequest {
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+	machine := backend.currentMachine()
+	requests, ok := machine.(aramcore.ExternalRequestMachine)
+	if !ok {
+		return nil
+	}
+	coreRequests := requests.ExternalRequests()
+	result := make([]frontend.ExternalRequest, len(coreRequests))
+	for index, request := range coreRequests {
+		result[index] = frontend.ExternalRequest{
+			Sequence: request.Sequence,
+			GuestNS:  request.GuestNS,
+			Kind:     frontend.ExternalRequestKind(request.Kind),
+			Target:   request.Target,
+			Data:     append([]byte(nil), request.Data...),
+		}
+	}
+	return result
+}
+
+// ClearExternalRequests acknowledges every request through the supplied
+// backend-owned sequence token.
+func (backend *Backend) ClearExternalRequests(through uint64) {
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+	machine := backend.currentMachine()
+	if requests, ok := machine.(aramcore.ExternalRequestMachine); ok {
+		requests.ClearExternalRequests(through)
+	}
+}
+
+var _ frontend.ExternalRequestBackend = (*Backend)(nil)
+
 func (backend *Backend) SupportsPointer() bool {
 	pointer, ok := backend.currentMachine().(aramcore.PointerInputMachine)
 	return ok && pointer.SupportsPointer()

@@ -14,6 +14,7 @@ package hostbackend
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	aramcore "github.com/mirusu400/aram-core/core"
@@ -29,6 +30,16 @@ var errToolActionUnsupported = errors.New("this machine does not implement tool 
 type Options struct {
 	Factory aramcore.Factory
 	System  systemintegration.Options
+}
+
+type externalRequestSource struct {
+	firmware bool
+	sequence uint64
+}
+
+type externalRequestObservation struct {
+	source externalRequestSource
+	target frontend.ExternalRequestBackend
 }
 
 // Backend routes between the application and whole-phone adapters. The
@@ -51,6 +62,18 @@ type Backend struct {
 	font    *frontend.FontSettings
 	cpu     *frontend.CPUSettings
 	display *frontend.DisplaySettings
+	openMu  sync.Mutex
+
+	// External requests are read and acknowledged in separate frontend ticks.
+	// Remap each adapter-owned sequence to a host token and remember its source
+	// so an input-kind switch cannot send the acknowledgement to the new adapter.
+	// Also serializes active-adapter changes with external-request snapshots.
+	externalRequestMu           sync.Mutex
+	activeFirmware              bool
+	externalRequestOpens        int
+	nextExternalRequestSequence uint64
+	externalRequestTokens       map[externalRequestSource]uint64
+	externalRequestObservations map[uint64]externalRequestObservation
 }
 
 func NewBackend(options Options) *Backend {
@@ -61,7 +84,13 @@ func NewBackend(options Options) *Backend {
 }
 
 func newBackend(application, system frontend.Backend) *Backend {
-	return &Backend{application: application, system: system, active: application}
+	return &Backend{
+		application:                 application,
+		system:                      system,
+		active:                      application,
+		externalRequestTokens:       make(map[externalRequestSource]uint64),
+		externalRequestObservations: make(map[uint64]externalRequestObservation),
+	}
 }
 
 // SupportsFirmware reports the capability the shell uses to decide whether to
@@ -80,6 +109,8 @@ func (b *Backend) adapterFor(firmware bool) frontend.Backend {
 // the current input without ending the backend, and for the whole-phone
 // adapter it is also what commits the writable NAND.
 func (b *Backend) selectAdapter(firmware bool) (frontend.Backend, error) {
+	b.externalRequestMu.Lock()
+	defer b.externalRequestMu.Unlock()
 	next := b.adapterFor(firmware)
 	if next == b.active {
 		return next, nil
@@ -88,6 +119,7 @@ func (b *Backend) selectAdapter(firmware bool) (frontend.Backend, error) {
 		return nil, err
 	}
 	b.active = next
+	b.activeFirmware = firmware
 	b.applyRememberedSettings()
 	return next, nil
 }
@@ -119,6 +151,10 @@ func (b *Backend) Open(
 	ctx context.Context,
 	request frontend.OpenRequest,
 ) (frontend.InputInfo, error) {
+	b.openMu.Lock()
+	defer b.openMu.Unlock()
+	b.beginExternalRequestOpen(request.Firmware)
+	defer b.finishExternalRequestOpen()
 	target, err := b.selectAdapter(request.Firmware)
 	if err != nil {
 		return frontend.InputInfo{}, err
@@ -131,14 +167,49 @@ func (b *Backend) OpenWithProgress(
 	request frontend.OpenRequest,
 	progress func(frontend.OpenStage),
 ) (frontend.InputInfo, error) {
+	b.openMu.Lock()
+	defer b.openMu.Unlock()
+	b.beginExternalRequestOpen(request.Firmware)
+	defer b.finishExternalRequestOpen()
 	target, err := b.selectAdapter(request.Firmware)
 	if err != nil {
 		return frontend.InputInfo{}, err
 	}
+	var info frontend.InputInfo
 	if opener, ok := target.(frontend.OpenProgressBackend); ok {
-		return opener.OpenWithProgress(ctx, request, progress)
+		info, err = opener.OpenWithProgress(ctx, request, progress)
+	} else {
+		info, err = target.Open(ctx, request)
 	}
-	return target.Open(ctx, request)
+	return info, err
+}
+
+// beginExternalRequestOpen invalidates tokens from the adapter an Open attempt
+// may replace. Backends can tear down or partially replace a machine before
+// returning an error, so retaining tokens on failure could let an old host token
+// acknowledge a new outbox entry whose source sequence was reused.
+func (b *Backend) beginExternalRequestOpen(firmware bool) {
+	b.externalRequestMu.Lock()
+	b.invalidateExternalRequestTokensLocked(firmware)
+	b.externalRequestOpens++
+	b.externalRequestMu.Unlock()
+}
+
+// finishExternalRequestOpen re-enables snapshots and acknowledgements after the
+// adapter has finished publishing either its replacement machine or its error.
+func (b *Backend) finishExternalRequestOpen() {
+	b.externalRequestMu.Lock()
+	defer b.externalRequestMu.Unlock()
+	b.externalRequestOpens--
+}
+
+func (b *Backend) invalidateExternalRequestTokensLocked(firmware bool) {
+	for source, token := range b.externalRequestTokens {
+		if source.firmware == firmware {
+			delete(b.externalRequestTokens, source)
+			delete(b.externalRequestObservations, token)
+		}
+	}
 }
 
 func (b *Backend) State() frontend.BackendState { return b.active.State() }
@@ -154,7 +225,19 @@ func (b *Backend) Execute(ctx context.Context, command frontend.BackendCommand) 
 // Close releases the current input. The frontend uses it both to close a title
 // and to shut down, so it does not change which adapter is active: the next
 // open picks that again from the request.
-func (b *Backend) Close() error { return b.active.Close() }
+func (b *Backend) Close() error {
+	b.openMu.Lock()
+	defer b.openMu.Unlock()
+
+	b.externalRequestMu.Lock()
+	target := b.active
+	firmware := b.activeFirmware
+	b.invalidateExternalRequestTokensLocked(firmware)
+	b.externalRequestOpens++
+	b.externalRequestMu.Unlock()
+	defer b.finishExternalRequestOpen()
+	return target.Close()
+}
 
 func (b *Backend) Capability(command frontend.BackendCommand) frontend.Capability {
 	if target, ok := b.active.(frontend.CapabilityBackend); ok {
@@ -222,6 +305,95 @@ func (b *Backend) QueueInput(event frontend.InputEvent) error {
 	}
 	return nil
 }
+
+func (b *Backend) ExternalRequests() []frontend.ExternalRequest {
+	b.externalRequestMu.Lock()
+	defer b.externalRequestMu.Unlock()
+	if b.externalRequestOpens != 0 {
+		return nil
+	}
+	if target, ok := b.active.(frontend.ExternalRequestBackend); ok {
+		requests := target.ExternalRequests()
+		if b.externalRequestTokens == nil {
+			b.externalRequestTokens = make(map[externalRequestSource]uint64)
+		}
+		if b.externalRequestObservations == nil {
+			b.externalRequestObservations = make(map[uint64]externalRequestObservation)
+		}
+		b.pruneExternalRequestTokensLocked(b.activeFirmware, requests)
+		result := make([]frontend.ExternalRequest, len(requests))
+		for index, request := range requests {
+			result[index] = request
+			result[index].Data = append([]byte(nil), request.Data...)
+			source := externalRequestSource{
+				firmware: b.activeFirmware,
+				sequence: request.Sequence,
+			}
+			token, exists := b.externalRequestTokens[source]
+			if !exists {
+				token = b.nextExternalRequestToken()
+				b.externalRequestTokens[source] = token
+				b.externalRequestObservations[token] = externalRequestObservation{
+					source: source,
+					target: target,
+				}
+			}
+			result[index].Sequence = token
+		}
+		return result
+	}
+	return nil
+}
+
+func (b *Backend) ClearExternalRequests(through uint64) {
+	b.externalRequestMu.Lock()
+	defer b.externalRequestMu.Unlock()
+	if b.externalRequestOpens != 0 {
+		return
+	}
+	observation, ok := b.externalRequestObservations[through]
+	if !ok {
+		return
+	}
+	observation.target.ClearExternalRequests(observation.source.sequence)
+	b.pruneExternalRequestTokensLocked(
+		observation.source.firmware,
+		observation.target.ExternalRequests(),
+	)
+}
+
+func (b *Backend) pruneExternalRequestTokensLocked(
+	firmware bool,
+	requests []frontend.ExternalRequest,
+) {
+	live := make(map[uint64]struct{}, len(requests))
+	for _, request := range requests {
+		live[request.Sequence] = struct{}{}
+	}
+	for source, token := range b.externalRequestTokens {
+		if source.firmware != firmware {
+			continue
+		}
+		if _, exists := live[source.sequence]; !exists {
+			delete(b.externalRequestTokens, source)
+			delete(b.externalRequestObservations, token)
+		}
+	}
+}
+
+func (b *Backend) nextExternalRequestToken() uint64 {
+	for {
+		b.nextExternalRequestSequence++
+		if b.nextExternalRequestSequence == 0 {
+			continue
+		}
+		if _, exists := b.externalRequestObservations[b.nextExternalRequestSequence]; !exists {
+			return b.nextExternalRequestSequence
+		}
+	}
+}
+
+var _ frontend.ExternalRequestBackend = (*Backend)(nil)
 
 func (b *Backend) SupportsPointer() bool {
 	target, ok := b.active.(frontend.PointerBackend)

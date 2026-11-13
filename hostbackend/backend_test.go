@@ -3,7 +3,10 @@ package hostbackend
 import (
 	"context"
 	"errors"
+	"math"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/mirusu400/aram-frontend/frontend"
 )
@@ -19,8 +22,11 @@ type recordingAdapter struct {
 	fonts    []frontend.FontSettings
 	cpus     []frontend.CPUSettings
 	frames   int
+	openErr  error
 	closeErr error
 	icons    []string
+	requests []frontend.ExternalRequest
+	cleared  []uint64
 }
 
 // Icon records the requested path and returns bytes tagged with this adapter's
@@ -35,7 +41,7 @@ func (a *recordingAdapter) Open(
 	request frontend.OpenRequest,
 ) (frontend.InputInfo, error) {
 	a.opens = append(a.opens, request)
-	return frontend.InputInfo{DisplayName: a.name}, nil
+	return frontend.InputInfo{DisplayName: a.name}, a.openErr
 }
 
 func (a *recordingAdapter) State() frontend.BackendState                           { return frontend.StateReady }
@@ -69,6 +75,17 @@ func (a *recordingAdapter) RunFrame(context.Context) error {
 	return nil
 }
 
+func (a *recordingAdapter) ExternalRequests() []frontend.ExternalRequest {
+	return append([]frontend.ExternalRequest(nil), a.requests...)
+}
+
+func (a *recordingAdapter) ClearExternalRequests(through uint64) {
+	a.cleared = append(a.cleared, through)
+	for len(a.requests) != 0 && a.requests[0].Sequence <= through {
+		a.requests = a.requests[1:]
+	}
+}
+
 func (a *recordingAdapter) BackendName() string { return a.name }
 
 // plainAdapter implements only the required contract, so the forwarding paths
@@ -80,6 +97,64 @@ func (a *plainAdapter) ConfigureFont(frontend.FontSettings) error   { panic("not
 func (a *plainAdapter) ConfigureCPU(frontend.CPUSettings) error     { panic("not implemented") }
 func (a *plainAdapter) AvailableCPUBackends() []string              { panic("not implemented") }
 func (a *plainAdapter) RunFrame(context.Context) error              { panic("not implemented") }
+
+type blockingOpenAdapter struct {
+	*recordingAdapter
+	mu          sync.Mutex
+	inFlight    int
+	maxInFlight int
+	started     chan struct{}
+	release     chan struct{}
+}
+
+type blockingSnapshotAdapter struct {
+	*recordingAdapter
+	once    sync.Once
+	started chan struct{}
+	release chan struct{}
+}
+
+func (a *blockingSnapshotAdapter) ExternalRequests() []frontend.ExternalRequest {
+	a.once.Do(func() {
+		close(a.started)
+		<-a.release
+	})
+	return a.recordingAdapter.ExternalRequests()
+}
+
+type blockingClearAdapter struct {
+	*recordingAdapter
+	once    sync.Once
+	started chan struct{}
+	release chan struct{}
+}
+
+func (a *blockingClearAdapter) ClearExternalRequests(through uint64) {
+	a.once.Do(func() {
+		close(a.started)
+		<-a.release
+	})
+	a.recordingAdapter.ClearExternalRequests(through)
+}
+
+func (a *blockingOpenAdapter) Open(
+	_ context.Context,
+	request frontend.OpenRequest,
+) (frontend.InputInfo, error) {
+	a.mu.Lock()
+	a.inFlight++
+	if a.inFlight > a.maxInFlight {
+		a.maxInFlight = a.inFlight
+	}
+	a.recordingAdapter.opens = append(a.recordingAdapter.opens, request)
+	a.mu.Unlock()
+	a.started <- struct{}{}
+	<-a.release
+	a.mu.Lock()
+	a.inFlight--
+	a.mu.Unlock()
+	return frontend.InputInfo{DisplayName: a.name}, nil
+}
 
 func newTestBackend() (*Backend, *recordingAdapter, *recordingAdapter) {
 	application := &recordingAdapter{name: "application"}
@@ -106,6 +181,392 @@ func TestOpenRoutesByRequestKind(t *testing.T) {
 	}
 	if backend.BackendName() != "system" {
 		t.Fatalf("active adapter after a firmware open = %q", backend.BackendName())
+	}
+}
+
+func TestExternalRequestsRouteToActiveAdapter(t *testing.T) {
+	backend, application, system := newTestBackend()
+	application.requests = []frontend.ExternalRequest{{
+		Sequence: 8, Kind: frontend.ExternalRequestBrowser, Data: []byte{1, 2, 3},
+	}}
+	requests := backend.ExternalRequests()
+	if len(requests) != 1 || requests[0].Sequence == 0 || requests[0].Sequence == 8 {
+		t.Fatalf("application external requests = %+v", requests)
+	}
+	applicationToken := requests[0].Sequence
+	if repeated := backend.ExternalRequests(); len(repeated) != 1 || repeated[0].Sequence != applicationToken {
+		t.Fatalf("repeated application token = %+v, want %d", repeated, applicationToken)
+	}
+	requests[0].Data[0] = 9
+	if application.requests[0].Data[0] != 1 {
+		t.Fatal("routed external request aliased adapter-owned data")
+	}
+
+	if _, err := backend.Open(context.Background(), frontend.OpenRequest{Firmware: true}); err != nil {
+		t.Fatal(err)
+	}
+	system.requests = []frontend.ExternalRequest{{
+		Sequence: 8, Kind: frontend.ExternalRequestSMS,
+	}}
+	systemRequests := backend.ExternalRequests()
+	if len(systemRequests) != 1 || systemRequests[0].Sequence == applicationToken {
+		t.Fatalf("system external requests reused application token: %+v", systemRequests)
+	}
+	systemToken := systemRequests[0].Sequence
+
+	backend.ClearExternalRequests(applicationToken)
+	if len(application.cleared) != 1 || application.cleared[0] != 8 {
+		t.Fatalf("application acknowledgements after switch = %v", application.cleared)
+	}
+	if len(system.cleared) != 0 {
+		t.Fatalf("new adapter received old acknowledgement: %v", system.cleared)
+	}
+
+	backend.ClearExternalRequests(^uint64(0))
+	if len(application.cleared) != 1 || len(system.cleared) != 0 {
+		t.Fatalf("unobserved token was forwarded: application=%v system=%v",
+			application.cleared, system.cleared)
+	}
+
+	backend.ClearExternalRequests(systemToken)
+	if len(system.cleared) != 1 || system.cleared[0] != 8 {
+		t.Fatalf("system acknowledgements = %v", system.cleared)
+	}
+}
+
+func TestExternalRequestTokenCannotAcknowledgeReopenedAdapter(t *testing.T) {
+	backend, application, _ := newTestBackend()
+	application.requests = []frontend.ExternalRequest{{
+		Sequence: 1, Kind: frontend.ExternalRequestBrowser,
+	}}
+	requests := backend.ExternalRequests()
+	if len(requests) != 1 {
+		t.Fatalf("initial external requests = %+v", requests)
+	}
+	staleToken := requests[0].Sequence
+
+	if _, err := backend.Open(context.Background(), frontend.OpenRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	backend.ClearExternalRequests(staleToken)
+	if len(application.cleared) != 0 {
+		t.Fatalf("stale token reached reopened adapter: %v", application.cleared)
+	}
+
+	requests = backend.ExternalRequests()
+	if len(requests) != 1 || requests[0].Sequence == staleToken {
+		t.Fatalf("reopened adapter token = %+v, stale token %d", requests, staleToken)
+	}
+	backend.ClearExternalRequests(requests[0].Sequence)
+	if len(application.cleared) != 1 || application.cleared[0] != 1 {
+		t.Fatalf("current token acknowledgement = %v", application.cleared)
+	}
+}
+
+func TestFailedOpenInvalidatesExternalRequestToken(t *testing.T) {
+	backend, application, _ := newTestBackend()
+	application.requests = []frontend.ExternalRequest{{
+		Sequence: 4, Kind: frontend.ExternalRequestBrowser,
+	}}
+	requests := backend.ExternalRequests()
+	if len(requests) != 1 {
+		t.Fatalf("initial external requests = %+v", requests)
+	}
+	staleToken := requests[0].Sequence
+
+	application.openErr = errors.New("machine replacement failed")
+	if _, err := backend.Open(context.Background(), frontend.OpenRequest{}); err == nil {
+		t.Fatal("synthetic open failure was not returned")
+	}
+	backend.ClearExternalRequests(staleToken)
+	if len(application.cleared) != 0 {
+		t.Fatalf("pre-open token survived failed replacement: %v", application.cleared)
+	}
+
+	requests = backend.ExternalRequests()
+	if len(requests) != 1 || requests[0].Sequence == staleToken {
+		t.Fatalf("post-failure external requests = %+v, stale token %d", requests, staleToken)
+	}
+}
+
+func TestExternalRequestSnapshotPrunesDroppedSequences(t *testing.T) {
+	backend, application, _ := newTestBackend()
+	application.requests = []frontend.ExternalRequest{
+		{Sequence: 1, Kind: frontend.ExternalRequestBrowser},
+		{Sequence: 2, Kind: frontend.ExternalRequestBrowser},
+	}
+	initial := backend.ExternalRequests()
+	if len(initial) != 2 {
+		t.Fatalf("initial external requests = %+v", initial)
+	}
+	droppedToken := initial[0].Sequence
+	retainedToken := initial[1].Sequence
+
+	application.requests = application.requests[1:]
+	remaining := backend.ExternalRequests()
+	if len(remaining) != 1 || remaining[0].Sequence != retainedToken {
+		t.Fatalf("remaining external requests = %+v, want token %d", remaining, retainedToken)
+	}
+	backend.ClearExternalRequests(droppedToken)
+	if len(application.cleared) != 0 {
+		t.Fatalf("dropped sequence token was forwarded: %v", application.cleared)
+	}
+	if len(backend.externalRequestTokens) != 1 || len(backend.externalRequestObservations) != 1 {
+		t.Fatalf("live mappings after one drop = tokens %d observations %d",
+			len(backend.externalRequestTokens), len(backend.externalRequestObservations))
+	}
+
+	application.requests = nil
+	if requests := backend.ExternalRequests(); len(requests) != 0 {
+		t.Fatalf("empty external requests = %+v", requests)
+	}
+	if len(backend.externalRequestTokens) != 0 || len(backend.externalRequestObservations) != 0 {
+		t.Fatalf("live mappings after all drops = tokens %d observations %d",
+			len(backend.externalRequestTokens), len(backend.externalRequestObservations))
+	}
+}
+
+func TestConcurrentOpensAreSerialized(t *testing.T) {
+	application := &blockingOpenAdapter{
+		recordingAdapter: &recordingAdapter{name: "application"},
+		started:          make(chan struct{}, 2),
+		release:          make(chan struct{}, 2),
+	}
+	backend := newBackend(application, &recordingAdapter{name: "system"})
+	results := make(chan error, 2)
+	go func() {
+		_, err := backend.Open(context.Background(), frontend.OpenRequest{Path: "first"})
+		results <- err
+	}()
+	<-application.started
+	go func() {
+		_, err := backend.OpenWithProgress(
+			context.Background(),
+			frontend.OpenRequest{Path: "second"},
+			nil,
+		)
+		results <- err
+	}()
+	select {
+	case <-application.started:
+		t.Fatal("second Open entered the adapter before the first completed")
+	case <-time.After(50 * time.Millisecond):
+	}
+	application.release <- struct{}{}
+	select {
+	case <-application.started:
+	case <-time.After(time.Second):
+		t.Fatal("second Open did not start after the first completed")
+	}
+	application.release <- struct{}{}
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+	application.mu.Lock()
+	maxInFlight := application.maxInFlight
+	application.mu.Unlock()
+	if maxInFlight != 1 {
+		t.Fatalf("maximum concurrent adapter Opens = %d, want 1", maxInFlight)
+	}
+}
+
+func TestOpenWaitsForExternalRequestSnapshotWithoutDeadlock(t *testing.T) {
+	application := &blockingSnapshotAdapter{
+		recordingAdapter: &recordingAdapter{
+			name: "application",
+			requests: []frontend.ExternalRequest{{
+				Sequence: 1, Kind: frontend.ExternalRequestBrowser,
+			}},
+		},
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	backend := newBackend(application, &recordingAdapter{name: "system"})
+	snapshotResult := make(chan []frontend.ExternalRequest, 1)
+	go func() { snapshotResult <- backend.ExternalRequests() }()
+	<-application.started
+	openResult := make(chan error, 1)
+	go func() {
+		_, err := backend.Open(context.Background(), frontend.OpenRequest{})
+		openResult <- err
+	}()
+	select {
+	case err := <-openResult:
+		t.Fatalf("Open completed while snapshot held the routing lock: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(application.release)
+	select {
+	case requests := <-snapshotResult:
+		if len(requests) != 1 {
+			t.Fatalf("snapshot requests = %+v", requests)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("snapshot did not finish after release")
+	}
+	select {
+	case err := <-openResult:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Open deadlocked behind completed snapshot")
+	}
+}
+
+func TestOpenWaitsForExternalRequestAcknowledgementWithoutDeadlock(t *testing.T) {
+	application := &blockingClearAdapter{
+		recordingAdapter: &recordingAdapter{
+			name: "application",
+			requests: []frontend.ExternalRequest{{
+				Sequence: 1, Kind: frontend.ExternalRequestBrowser,
+			}},
+		},
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	backend := newBackend(application, &recordingAdapter{name: "system"})
+	requests := backend.ExternalRequests()
+	if len(requests) != 1 {
+		t.Fatalf("external requests = %+v", requests)
+	}
+	clearDone := make(chan struct{})
+	go func() {
+		backend.ClearExternalRequests(requests[0].Sequence)
+		close(clearDone)
+	}()
+	<-application.started
+	openResult := make(chan error, 1)
+	go func() {
+		_, err := backend.OpenWithProgress(
+			context.Background(),
+			frontend.OpenRequest{},
+			nil,
+		)
+		openResult <- err
+	}()
+	select {
+	case err := <-openResult:
+		t.Fatalf("OpenWithProgress completed while ACK held the routing lock: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(application.release)
+	select {
+	case <-clearDone:
+	case <-time.After(time.Second):
+		t.Fatal("acknowledgement did not finish after release")
+	}
+	select {
+	case err := <-openResult:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("OpenWithProgress deadlocked behind completed acknowledgement")
+	}
+}
+
+func TestCloseWaitsForOpenAndInvalidatesPublishedToken(t *testing.T) {
+	application := &blockingOpenAdapter{
+		recordingAdapter: &recordingAdapter{name: "application"},
+		started:          make(chan struct{}, 1),
+		release:          make(chan struct{}, 1),
+	}
+	backend := newBackend(application, &recordingAdapter{name: "system"})
+	openResult := make(chan error, 1)
+	go func() {
+		_, err := backend.Open(context.Background(), frontend.OpenRequest{})
+		openResult <- err
+	}()
+	<-application.started
+	closeResult := make(chan error, 1)
+	go func() { closeResult <- backend.Close() }()
+	select {
+	case err := <-closeResult:
+		t.Fatalf("Close completed during Open: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	application.release <- struct{}{}
+	if err := <-openResult; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-closeResult; err != nil {
+		t.Fatal(err)
+	}
+	if application.closes != 1 {
+		t.Fatalf("adapter closes = %d, want 1", application.closes)
+	}
+}
+
+func TestFailedCloseInvalidatesExternalRequestToken(t *testing.T) {
+	backend, application, _ := newTestBackend()
+	application.requests = []frontend.ExternalRequest{{
+		Sequence: 9, Kind: frontend.ExternalRequestBrowser,
+	}}
+	requests := backend.ExternalRequests()
+	if len(requests) != 1 {
+		t.Fatalf("initial external requests = %+v", requests)
+	}
+	staleToken := requests[0].Sequence
+	application.closeErr = errors.New("save failed")
+	if err := backend.Close(); err == nil {
+		t.Fatal("synthetic close failure was not returned")
+	}
+	backend.ClearExternalRequests(staleToken)
+	if len(application.cleared) != 0 {
+		t.Fatalf("pre-close token survived failed close: %v", application.cleared)
+	}
+	requests = backend.ExternalRequests()
+	if len(requests) != 1 || requests[0].Sequence == staleToken {
+		t.Fatalf("post-close-failure requests = %+v, stale token %d", requests, staleToken)
+	}
+}
+
+func TestExternalRequestTokenWrapSkipsZeroAndLiveToken(t *testing.T) {
+	backend, application, _ := newTestBackend()
+	application.requests = []frontend.ExternalRequest{{
+		Sequence: 10, Kind: frontend.ExternalRequestBrowser,
+	}}
+	initial := backend.ExternalRequests()
+	if len(initial) != 1 || initial[0].Sequence != 1 {
+		t.Fatalf("initial external requests = %+v", initial)
+	}
+	backend.nextExternalRequestSequence = math.MaxUint64 - 1
+	application.requests = append(application.requests,
+		frontend.ExternalRequest{Sequence: 11, Kind: frontend.ExternalRequestBrowser})
+	wrapped := backend.ExternalRequests()
+	if len(wrapped) != 2 || wrapped[1].Sequence != math.MaxUint64 {
+		t.Fatalf("pre-wrap external requests = %+v", wrapped)
+	}
+	application.requests = append(application.requests,
+		frontend.ExternalRequest{Sequence: 12, Kind: frontend.ExternalRequestBrowser})
+	wrapped = backend.ExternalRequests()
+	if len(wrapped) != 3 || wrapped[2].Sequence != 2 {
+		t.Fatalf("wrapped external requests = %+v, want token 2 after skipping 0 and live 1", wrapped)
+	}
+}
+
+func TestExternalRequestPruningFollowsDisorderedOutbox(t *testing.T) {
+	backend, application, _ := newTestBackend()
+	application.requests = []frontend.ExternalRequest{
+		{Sequence: 10, Kind: frontend.ExternalRequestBrowser},
+		{Sequence: 20, Kind: frontend.ExternalRequestBrowser},
+		{Sequence: 5, Kind: frontend.ExternalRequestBrowser},
+	}
+	requests := backend.ExternalRequests()
+	if len(requests) != 3 {
+		t.Fatalf("disordered external requests = %+v", requests)
+	}
+	lateLowToken := requests[2].Sequence
+	backend.ClearExternalRequests(requests[0].Sequence)
+	if len(application.requests) != 2 || application.requests[1].Sequence != 5 {
+		t.Fatalf("source outbox after clearing 10 = %+v", application.requests)
+	}
+	backend.ClearExternalRequests(lateLowToken)
+	if len(application.cleared) != 2 || application.cleared[1] != 5 {
+		t.Fatalf("late low-sequence acknowledgement = %v", application.cleared)
 	}
 }
 
@@ -138,6 +599,14 @@ func TestSwitchingAdaptersClosesTheOutgoingOne(t *testing.T) {
 
 func TestSwitchIsAbandonedWhenTheOutgoingAdapterFailsToClose(t *testing.T) {
 	backend, application, system := newTestBackend()
+	application.requests = []frontend.ExternalRequest{{
+		Sequence: 6, Kind: frontend.ExternalRequestBrowser,
+	}}
+	requests := backend.ExternalRequests()
+	if len(requests) != 1 {
+		t.Fatalf("application external requests = %+v", requests)
+	}
+	applicationToken := requests[0].Sequence
 	application.closeErr = errors.New("still writing save data")
 
 	_, err := backend.Open(context.Background(), frontend.OpenRequest{Firmware: true})
@@ -149,6 +618,13 @@ func TestSwitchIsAbandonedWhenTheOutgoingAdapterFailsToClose(t *testing.T) {
 	}
 	if backend.BackendName() != "application" {
 		t.Fatalf("active adapter = %q after a failed close, want the outgoing one", backend.BackendName())
+	}
+	backend.ClearExternalRequests(applicationToken)
+	if len(application.cleared) != 1 || application.cleared[0] != 6 {
+		t.Fatalf("outgoing adapter token was lost after failed switch: %v", application.cleared)
+	}
+	if len(system.cleared) != 0 {
+		t.Fatalf("failed switch routed acknowledgement to incoming adapter: %v", system.cleared)
 	}
 }
 
