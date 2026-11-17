@@ -1,4 +1,4 @@
 LG PXO1과 SKT GNEX/GVM 게임의 호환성을 확대했습니다.
-KTF, LGT Raptor와 BREW 실행 안정성을 개선했습니다.
+KTF, LGT Raptor/Clet와 BREW의 실행 안정성과 전체 화면 표시를 개선했습니다.
 네이티브 텍스트 입력과 게임의 외부 동작 요청 확인을 추가했습니다.
 SMAF 오디오 재현과 실행 성능을 개선했습니다.

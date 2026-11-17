@@ -4,7 +4,7 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/)를 따르며,
 버전은 [유의적 버전](https://semver.org/lang/ko/)을 사용합니다.
 
-## [0.6.0] - 2026-11-13
+## [0.6.0] - 2026-11-17
 
 LG PXO1 게임을 제품 실행 경로에 연결하고 SKT GNEX/GVM, KTF WIPI/Clet,
 LGT Raptor·J2ME와 BREW 게임의 실행 범위를 넓혔습니다. 게스트의 텍스트 입력과
@@ -21,6 +21,7 @@ LGT Raptor·J2ME와 BREW 게임의 실행 범위를 넓혔습니다. 게스트�
   개선해 일부 게임의 시작 진행 범위 확대
 - LGT Raptor·J2ME와 BREW/EADS 게임의 화면 크기, 이미지·한글 문자열, 키 반복,
   콜백과 오프라인 응답 처리 개선
+- LGT Raptor/Clet 게임이 기기 해상도 전체를 사용하도록 화면 좌표 처리 일반화
 - 시스템 모드 펌웨어 부팅 전환 시 CPU 상태 동기화 수정
 
 게임별 검증 단계는 서로 다르며, 위 결과가 각 형식 전체의 호환성을 의미하지는
@@ -40,7 +41,7 @@ LGT Raptor·J2ME와 BREW 게임의 실행 범위를 넓혔습니다. 게스트�
 - ARM/Thumb 인터프리터의 반복 메모리 접근과 반환 경로 최적화
 
 ### 포함 구성요소
-- core `46dfb87`, frontend `7a0216f`, authd `4053607`
+- core `46a8546`, frontend `7a0216f`, authd `4053607`
 - RG DS Ebitengine fork `4701562`, test runner `4206f63`
 
 ## [0.4.3] - 2026-10-02
