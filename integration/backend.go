@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mirusu400/aram-core/application"
 	"github.com/mirusu400/aram-core/cheat"
@@ -47,6 +48,11 @@ type Backend struct {
 	cpuChoice     string
 	runRequested  bool
 	lastFrameHash uint64
+	// clockConfigured records that a frontend selected the handset clock. Until
+	// then machines keep the core's fixed start date, so headless probes stay
+	// reproducible.
+	clockConfigured bool
+	clockOffset     time.Duration
 	// lastFramePixels retains the last published frame so the next one can be
 	// compared against it exactly instead of hashed.
 	lastFramePixels []byte
@@ -795,6 +801,38 @@ func (backend *Backend) ConfigureFont(settings frontend.FontSettings) error {
 	return nil
 }
 
+// Backend serves the optional clock interface so a title reads the device's
+// date and time, or the one the user set, instead of the core's fixed date.
+var _ frontend.ClockBackend = (*Backend)(nil)
+
+// hostNow is the device clock; tests replace it.
+var hostNow = time.Now
+
+// ConfigureClock records how far the handset clock is set from the device
+// clock. The time is sampled when a machine is created, so it takes effect the
+// next time a title is opened.
+func (backend *Backend) ConfigureClock(settings frontend.ClockSettings) error {
+	if guestWallEpochMillis(hostNow(), settings.Offset) <= 0 {
+		return fmt.Errorf("handset clock offset %s is out of range", settings.Offset)
+	}
+	backend.mu.Lock()
+	backend.clockConfigured = true
+	backend.clockOffset = settings.Offset
+	backend.mu.Unlock()
+	return nil
+}
+
+// guestWallEpochMillis is the UTC start time that makes the guest's calendar
+// show what the device shows at now, moved by offset. The guest handset keeps a
+// fixed time zone, so the device's own zone is folded into the epoch: a title
+// displays the user's local date and time wherever the device is.
+func guestWallEpochMillis(now time.Time, offset time.Duration) int64 {
+	target := now.Add(offset)
+	_, zoneSeconds := target.Zone()
+	guestZoneMillis := int64(runtime.DefaultDeviceConfig().TimezoneMins) * 60_000
+	return target.UnixMilli() + int64(zoneSeconds)*1000 - guestZoneMillis
+}
+
 // ConfigureCPU records the CPU backend selection. An empty name keeps the
 // default (the ARAM_CPU environment selection, or the precise interpreter); a
 // known registered name is stored and baked into the next machine created, so
@@ -829,6 +867,8 @@ func (backend *Backend) factoryForCreate() aramcore.Factory {
 	factory := backend.factory
 	fontChoice := backend.fontChoice
 	cpuChoice := backend.cpuChoice
+	clockConfigured := backend.clockConfigured
+	clockOffset := backend.clockOffset
 	audioMixMode := backend.audio.MixMode
 	outputSampleRate := backend.audio.OutputSampleRate
 	outputChannels := backend.audio.OutputChannels
@@ -836,6 +876,9 @@ func (backend *Backend) factoryForCreate() aramcore.Factory {
 	backend.mu.RUnlock()
 	if concrete, ok := factory.(application.Factory); ok {
 		concrete.FallbackFont = fontChoice
+		if clockConfigured {
+			concrete.WallEpochMillis = guestWallEpochMillis(hostNow(), clockOffset)
+		}
 		concrete.AudioMixMode = audioMixMode
 		concrete.OutputSampleRate = outputSampleRate
 		concrete.OutputChannels = outputChannels
