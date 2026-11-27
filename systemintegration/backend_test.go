@@ -3,10 +3,13 @@ package systemintegration
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"errors"
 	"image"
 	"image/color"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/mirusu400/aram-core/application"
@@ -16,12 +19,19 @@ import (
 	"github.com/mirusu400/aram-frontend/frontend"
 )
 
+type fakeTouch struct {
+	x, y    int
+	pressed bool
+}
+
 type fakeSystemMachine struct {
 	position    systemmachine.Position
 	frame       *image.RGBA
 	frameHash   string
 	lastControl string
 	lastPressed bool
+	noTouch     bool
+	touches     []fakeTouch
 	media       systemmachine.MediaState
 	closed      bool
 }
@@ -69,6 +79,16 @@ func (machine *fakeSystemMachine) Stop() error { return nil }
 func (machine *fakeSystemMachine) SetKey(control string, pressed bool) error {
 	machine.lastControl = control
 	machine.lastPressed = pressed
+	return nil
+}
+func (machine *fakeSystemMachine) SetTouch(x, y int, pressed bool) error {
+	if machine.noTouch {
+		return systemmachine.ErrUnsupportedControl
+	}
+	if x < 0 || y < 0 || x >= 240 || y >= 320 {
+		return errors.New("touch outside the panel")
+	}
+	machine.touches = append(machine.touches, fakeTouch{x, y, pressed})
 	return nil
 }
 func (machine *fakeSystemMachine) Framebuffer() image.Image { return machine.frame }
@@ -414,5 +434,178 @@ func TestPrivateSCHW860FirmwareReachesFrontendAdapter(t *testing.T) {
 	frame := backend.VideoFrame()
 	if frame.Image == nil || frame.Image.Bounds().Dx() != 240 || frame.Image.Bounds().Dy() != 320 {
 		t.Fatalf("frontend frame = %+v", frame)
+	}
+}
+
+func TestResolveSystemControlFallsBackOnlyWhenTheBoardLacksTheKey(t *testing.T) {
+	keypad := map[string]bool{"soft-left": true, "end": true, "digit-1": true, "pound": true}
+	touch := map[string]bool{"hold": true}
+	both := map[string]bool{"hold": true, "end": true, "menu": true, "soft-left": true}
+	for _, test := range []struct {
+		name     string
+		control  string
+		board    map[string]bool
+		want     string
+		accepted bool
+	}{
+		{"digit", "num1", keypad, "digit-1", true},
+		{"hash", "hash", keypad, "pound", true},
+		{"menu uses the left soft key", "menu", keypad, "soft-left", true},
+		{"end stays end on a keypad board", "end", keypad, "end", true},
+		{"end wakes a touch-only board through hold", "end", touch, "hold", true},
+		{"a board with both keeps them apart", "end", both, "end", true},
+		{"a board with its own menu keeps it", "menu", both, "menu", true},
+		{"no menu fallback without a soft key", "menu", touch, "menu", false},
+		{"unknown control", "not-a-board-control", both, "not-a-board-control", false},
+	} {
+		got, accepted := resolveSystemControl(test.control, test.board)
+		if got != test.want || accepted != test.accepted {
+			t.Errorf("%s: resolveSystemControl(%q) = %q, %t; want %q, %t",
+				test.name, test.control, got, accepted, test.want, test.accepted)
+		}
+	}
+}
+
+func openFakeSystemBackend(t *testing.T, machine *fakeSystemMachine) *Backend {
+	t.Helper()
+	directory := t.TempDir()
+	for name, data := range map[string]string{
+		"phone.wbt": "boot", "phone.wbin": "code", "phone.dat": "data", "phone.fnt": "font",
+	} {
+		if err := os.WriteFile(filepath.Join(directory, name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	backend := NewBackend(Options{
+		InstructionsPerFrame:     25,
+		MinimumInputInstructions: 50,
+		MediaRoot:                t.TempDir(),
+		DisableMediaPersistence:  true,
+		newMachine: func(firmwareset.Set, systemmachine.Options) (systemMachine, error) {
+			return machine, nil
+		},
+	})
+	t.Cleanup(func() { _ = backend.Close() })
+	if _, err := backend.Open(context.Background(), frontend.OpenRequest{Path: directory}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Execute(context.Background(), frontend.CommandStart); err != nil {
+		t.Fatal(err)
+	}
+	return backend
+}
+
+func TestBackendForwardsPointerInputToTheTouchPanel(t *testing.T) {
+	machine := newFakeSystemMachine()
+	backend := openFakeSystemBackend(t, machine)
+	if !backend.SupportsPointer() {
+		t.Fatal("board with a touch panel does not report pointer support")
+	}
+	machine.touches = nil
+
+	// A tap and its drag reach the panel at once; a release that arrives
+	// before the minimum guest duration waits for a later frame.
+	for _, event := range []frontend.PointerInputEvent{
+		{X: 10, Y: 20, Pressed: true}, {X: 12, Y: 24, Pressed: true}, {X: 12, Y: 24, Pressed: false},
+	} {
+		if err := backend.QueuePointer(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := []fakeTouch{{10, 20, true}, {12, 24, true}}; !reflect.DeepEqual(machine.touches, want) {
+		t.Fatalf("touches before the minimum duration = %+v, want %+v", machine.touches, want)
+	}
+	if err := backend.RunFrame(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(machine.touches) != 2 {
+		t.Fatalf("release applied after %d instructions: %+v", machine.position.Instructions, machine.touches)
+	}
+	for frame := 0; frame < 2; frame++ {
+		if err := backend.RunFrame(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := (fakeTouch{12, 24, false}); len(machine.touches) != 3 || machine.touches[2] != want {
+		t.Fatalf("deferred release = %+v, want last %+v", machine.touches, want)
+	}
+
+	// A held contact releases immediately once it has lasted long enough, and
+	// a stray release is ignored.
+	if err := backend.QueuePointer(frontend.PointerInputEvent{X: 5, Y: 6, Pressed: true}); err != nil {
+		t.Fatal(err)
+	}
+	for frame := 0; frame < 3; frame++ {
+		if err := backend.RunFrame(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for repeat := 0; repeat < 2; repeat++ {
+		if err := backend.QueuePointer(frontend.PointerInputEvent{X: 5, Y: 6, Pressed: false}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := (fakeTouch{5, 6, false}); len(machine.touches) != 5 || machine.touches[4] != want {
+		t.Fatalf("held contact release = %+v, want last %+v", machine.touches, want)
+	}
+	if err := backend.QueuePointer(frontend.PointerInputEvent{X: 999, Y: 6, Pressed: true}); err == nil {
+		t.Fatal("contact outside the panel was accepted")
+	}
+}
+
+func TestBackendWithoutTouchPanelRejectsPointerInput(t *testing.T) {
+	machine := newFakeSystemMachine()
+	machine.noTouch = true
+	backend := openFakeSystemBackend(t, machine)
+	if backend.SupportsPointer() {
+		t.Fatal("board without a touch panel reports pointer support")
+	}
+	if err := backend.QueuePointer(frontend.PointerInputEvent{X: 1, Y: 1, Pressed: true}); err == nil {
+		t.Fatal("pointer input accepted without a touch panel")
+	}
+}
+
+func TestMediaFileCarriesSecondaryFlashAndOneNANDSpare(t *testing.T) {
+	directory := t.TempDir()
+	base := systemmachine.MediaState{
+		FirmwareBuildID: "samsung.sph-w4200.dc17",
+		Flash:           []byte("flash-state"),
+		NAND:            []byte("nand-state"),
+	}
+	// A board without the extra areas keeps writing schema 1, byte for byte.
+	plainPath := filepath.Join(directory, "plain.arammedia")
+	if err := writeMediaFile(plainPath, base); err != nil {
+		t.Fatal(err)
+	}
+	plain, err := os.ReadFile(plainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version := binary.LittleEndian.Uint32(plain[len(mediaMagic):]); version != mediaSchemaVersion {
+		t.Fatalf("media without extra areas uses schema %d", version)
+	}
+	for name, media := range map[string]systemmachine.MediaState{
+		"secondary": {FirmwareBuildID: base.FirmwareBuildID, Flash: base.Flash, NAND: base.NAND,
+			SecondaryFlash: []byte("second-chip")},
+		"spare": {FirmwareBuildID: base.FirmwareBuildID, Flash: base.Flash, NAND: base.NAND,
+			OneNANDSpare: []byte("spare-area")},
+		"both": {FirmwareBuildID: base.FirmwareBuildID, Flash: base.Flash, NAND: base.NAND,
+			SecondaryFlash: []byte("second-chip"), OneNANDSpare: []byte("spare-area")},
+	} {
+		path := filepath.Join(directory, name+".arammedia")
+		if err := writeMediaFile(path, media); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		got, err := readMediaFile(path)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !reflect.DeepEqual(got, media) {
+			t.Fatalf("%s: media round trip = %+v, want %+v", name, got, media)
+		}
+	}
+	got, err := readMediaFile(plainPath)
+	if err != nil || got.SecondaryFlash != nil || got.OneNANDSpare != nil {
+		t.Fatalf("schema 1 media = %+v, error %v", got, err)
 	}
 }

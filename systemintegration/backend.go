@@ -30,8 +30,12 @@ const (
 	DefaultInstructionsPerFrame     = uint64(1_000_000)
 	DefaultMinimumInputInstructions = uint64(7_000_000)
 	mediaSchemaVersion              = uint32(1)
-	maxMediaBuildIDBytes            = uint32(4 * 1024)
-	maxMediaSectionBytes            = uint64(2 << 30)
+	// Schema 2 adds the secondary NAND main area and the OneNAND spare area.
+	// It is written only for boards that have either, so media of every
+	// other board stays byte-identical to schema 1.
+	mediaExtendedSchemaVersion = uint32(2)
+	maxMediaBuildIDBytes       = uint32(4 * 1024)
+	maxMediaSectionBytes       = uint64(2 << 30)
 )
 
 var mediaMagic = []byte("ARAMSYSMEDIA\x00")
@@ -43,6 +47,7 @@ type systemMachine interface {
 	Run(context.Context, uint64) cpu.Result
 	Stop() error
 	SetKey(string, bool) error
+	SetTouch(x, y int, pressed bool) error
 	Framebuffer() image.Image
 	FrameSHA256() string
 	PowerCycle() error
@@ -95,6 +100,18 @@ type Backend struct {
 	frameSequence       uint64
 	inputSources        map[string]string
 	inputHolds          map[string]inputHold
+	touch               bool
+	pointer             pointerHold
+}
+
+// pointerHold tracks the one touch contact a resistive panel reports. Like a
+// key, a tap is kept down for the minimum guest duration so a fast host click
+// cannot fall between two panel scans.
+type pointerHold struct {
+	x, y           int
+	pressed        bool
+	releaseAfter   uint64
+	releasePending bool
 }
 
 type inputHold struct {
@@ -220,6 +237,9 @@ func (backend *Backend) OpenWithProgress(
 	for _, control := range machine.Controls() {
 		controls[control] = true
 	}
+	// Releasing an idle panel changes nothing, so it doubles as the question
+	// "does this board have a touch panel at all".
+	touch := !errors.Is(machine.SetTouch(0, 0, false), systemmachine.ErrUnsupportedControl)
 
 	backend.mu.Lock()
 	oldMachine := backend.machine
@@ -233,6 +253,7 @@ func (backend *Backend) OpenWithProgress(
 	backend.mediaRestoreFailed = mediaRestoreFailed
 	backend.mediaRestorePending = mediaRestorePending
 	backend.controls = controls
+	backend.touch = touch
 	backend.frameHash = ""
 	backend.frameSequence = 0
 	backend.resetInputState()
@@ -545,17 +566,8 @@ func (backend *Backend) QueueInput(event frontend.InputEvent) error {
 	if machine == nil {
 		return systemBackendError(frontend.FailureBackendUnavailable, errors.New("no system machine is loaded"))
 	}
-	control := systemControl(event.Control)
 	backend.mu.RLock()
-	supported := backend.controls[control]
-	// Feature-phone menus are normally reached through the left soft button,
-	// while the shared frontend also exposes an abstract MENU control for
-	// application runtimes. Use the physical soft button only when a board has
-	// no distinct menu key of its own.
-	if !supported && control == "menu" && backend.controls["soft-left"] {
-		control = "soft-left"
-		supported = true
-	}
+	control, supported := resolveSystemControl(event.Control, backend.controls)
 	backend.mu.RUnlock()
 	if !supported {
 		return fmt.Errorf("firmware board profile does not expose control %q yet", event.Control)
@@ -611,6 +623,12 @@ func (backend *Backend) QueueInput(event frontend.InputEvent) error {
 
 func (backend *Backend) flushInputReleases(machine systemMachine) error {
 	position := machine.Position().Instructions
+	if backend.pointer.releasePending && position >= backend.pointer.releaseAfter {
+		if err := machine.SetTouch(backend.pointer.x, backend.pointer.y, false); err != nil {
+			return systemBackendError(frontend.FailureUnknown, err)
+		}
+		backend.pointer = pointerHold{}
+	}
 	for control, hold := range backend.inputHolds {
 		if hold.sources != 0 || !hold.releasePending || position < hold.releaseAfter {
 			continue
@@ -626,13 +644,90 @@ func (backend *Backend) flushInputReleases(machine systemMachine) error {
 func (backend *Backend) resetInputState() {
 	clear(backend.inputSources)
 	clear(backend.inputHolds)
+	backend.pointer = pointerHold{}
 }
+
+// SupportsPointer reports whether the loaded board has a touch panel.
+func (backend *Backend) SupportsPointer() bool {
+	backend.mu.RLock()
+	defer backend.mu.RUnlock()
+	return backend.machine != nil && backend.touch
+}
+
+// QueuePointer applies one touch contact in panel coordinates. A press also
+// moves an existing contact; a release shorter than the minimum guest input
+// duration is completed by a later frame.
+func (backend *Backend) QueuePointer(event frontend.PointerInputEvent) error {
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+
+	machine := backend.currentMachine()
+	if machine == nil {
+		return systemBackendError(frontend.FailureBackendUnavailable, errors.New("no system machine is loaded"))
+	}
+	if !backend.SupportsPointer() {
+		return errors.New("firmware board profile has no touch panel")
+	}
+	if event.Pressed {
+		if err := machine.SetTouch(event.X, event.Y, true); err != nil {
+			return systemBackendError(frontend.FailureUnknown, err)
+		}
+		if !backend.pointer.pressed {
+			backend.pointer.releaseAfter = addSaturating(
+				machine.Position().Instructions,
+				backend.options.MinimumInputInstructions,
+			)
+		}
+		backend.pointer.x, backend.pointer.y = event.X, event.Y
+		backend.pointer.pressed = true
+		backend.pointer.releasePending = false
+		return nil
+	}
+	if !backend.pointer.pressed {
+		return nil
+	}
+	backend.pointer.pressed = false
+	if machine.Position().Instructions < backend.pointer.releaseAfter {
+		backend.pointer.releasePending = true
+		return nil
+	}
+	if err := machine.SetTouch(backend.pointer.x, backend.pointer.y, false); err != nil {
+		return systemBackendError(frontend.FailureUnknown, err)
+	}
+	backend.pointer = pointerHold{}
+	return nil
+}
+
+var _ frontend.PointerBackend = (*Backend)(nil)
 
 func addSaturating(left, right uint64) uint64 {
 	if ^uint64(0)-left < right {
 		return ^uint64(0)
 	}
 	return left + right
+}
+
+// resolveSystemControl maps a frontend control to the board control that
+// should receive it, and reports whether the board has one.
+func resolveSystemControl(frontendControl string, boardControls map[string]bool) (string, bool) {
+	control := systemControl(frontendControl)
+	if boardControls[control] {
+		return control, true
+	}
+	switch {
+	// Feature-phone menus are normally reached through the left soft button,
+	// while the shared frontend also exposes an abstract MENU control for
+	// application runtimes. Use the physical soft button only when a board has
+	// no distinct menu key of its own.
+	case control == "menu" && boardControls["soft-left"]:
+		return "soft-left", true
+	// A full-touch handset has no END key; its HOLD side key is what wakes and
+	// locks the panel. The frontend has no HOLD control, so END drives it on a
+	// board that offers HOLD and no END of its own.
+	case control == "end" && boardControls["hold"]:
+		return "hold", true
+	}
+	return control, false
 }
 
 func systemControl(control string) string {
@@ -845,9 +940,12 @@ func writeMediaFile(path string, media systemmachine.MediaState) error {
 	if media.FirmwareBuildID == "" || len(media.FirmwareBuildID) > int(maxMediaBuildIDBytes) {
 		return errors.New("persistent media has an invalid firmware build ID")
 	}
-	if uint64(len(media.Flash)) > maxMediaSectionBytes || uint64(len(media.NAND)) > maxMediaSectionBytes {
+	if uint64(len(media.Flash)) > maxMediaSectionBytes || uint64(len(media.NAND)) > maxMediaSectionBytes ||
+		uint64(len(media.SecondaryFlash)) > maxMediaSectionBytes ||
+		uint64(len(media.OneNANDSpare)) > maxMediaSectionBytes {
 		return errors.New("persistent media exceeds the host integration limit")
 	}
+	extended := len(media.SecondaryFlash) != 0 || len(media.OneNANDSpare) != 0
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -866,17 +964,24 @@ func writeMediaFile(path string, media systemmachine.MediaState) error {
 	}
 	hash := sha256.New()
 	output := io.MultiWriter(temporary, hash)
-	for _, value := range []any{
+	header := []any{
 		mediaSchemaVersion,
 		uint32(len(media.FirmwareBuildID)),
 		uint64(len(media.Flash)),
 		uint64(len(media.NAND)),
-	} {
+	}
+	sections := [][]byte{[]byte(media.FirmwareBuildID), media.Flash, media.NAND}
+	if extended {
+		header[0] = mediaExtendedSchemaVersion
+		header = append(header, uint64(len(media.SecondaryFlash)), uint64(len(media.OneNANDSpare)))
+		sections = append(sections, media.SecondaryFlash, media.OneNANDSpare)
+	}
+	for _, value := range header {
 		if err := binary.Write(output, binary.LittleEndian, value); err != nil {
 			return fail(err)
 		}
 	}
-	for _, bytes := range [][]byte{[]byte(media.FirmwareBuildID), media.Flash, media.NAND} {
+	for _, bytes := range sections {
 		if _, err := output.Write(bytes); err != nil {
 			return fail(err)
 		}
@@ -915,18 +1020,38 @@ func readMediaFile(path string) (systemmachine.MediaState, error) {
 			return systemmachine.MediaState{}, err
 		}
 	}
-	if version != mediaSchemaVersion {
+	if version != mediaSchemaVersion && version != mediaExtendedSchemaVersion {
 		return systemmachine.MediaState{}, fmt.Errorf("persistent media schema %d is unsupported", version)
+	}
+	var secondaryLength, spareLength uint64
+	if version == mediaExtendedSchemaVersion {
+		for _, value := range []any{&secondaryLength, &spareLength} {
+			if err := binary.Read(input, binary.LittleEndian, value); err != nil {
+				return systemmachine.MediaState{}, err
+			}
+		}
+		// Schema 2 exists only to carry at least one of the two sections.
+		if secondaryLength == 0 && spareLength == 0 {
+			return systemmachine.MediaState{}, errors.New("persistent media section lengths are invalid")
+		}
 	}
 	if buildLength == 0 || buildLength > maxMediaBuildIDBytes ||
 		flashLength == 0 || flashLength > maxMediaSectionBytes ||
-		nandLength == 0 || nandLength > maxMediaSectionBytes {
+		nandLength == 0 || nandLength > maxMediaSectionBytes ||
+		secondaryLength > maxMediaSectionBytes || spareLength > maxMediaSectionBytes {
 		return systemmachine.MediaState{}, errors.New("persistent media section lengths are invalid")
 	}
 	build := make([]byte, int(buildLength))
 	flash := make([]byte, int(flashLength))
 	nand := make([]byte, int(nandLength))
-	for _, bytes := range [][]byte{build, flash, nand} {
+	var secondary, spare []byte
+	if secondaryLength != 0 {
+		secondary = make([]byte, int(secondaryLength))
+	}
+	if spareLength != 0 {
+		spare = make([]byte, int(spareLength))
+	}
+	for _, bytes := range [][]byte{build, flash, nand, secondary, spare} {
 		if _, err := io.ReadFull(input, bytes); err != nil {
 			return systemmachine.MediaState{}, err
 		}
@@ -948,6 +1073,8 @@ func readMediaFile(path string) (systemmachine.MediaState, error) {
 		FirmwareBuildID: string(build),
 		Flash:           flash,
 		NAND:            nand,
+		SecondaryFlash:  secondary,
+		OneNANDSpare:    spare,
 	}, nil
 }
 
