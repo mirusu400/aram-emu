@@ -416,3 +416,32 @@ func TestPrivateSCHW860FirmwareReachesFrontendAdapter(t *testing.T) {
 		t.Fatalf("frontend frame = %+v", frame)
 	}
 }
+
+func TestResolveSystemControlFallsBackOnlyWhenTheBoardLacksTheKey(t *testing.T) {
+	keypad := map[string]bool{"soft-left": true, "end": true, "digit-1": true, "pound": true}
+	touch := map[string]bool{"hold": true}
+	both := map[string]bool{"hold": true, "end": true, "menu": true, "soft-left": true}
+	for _, test := range []struct {
+		name     string
+		control  string
+		board    map[string]bool
+		want     string
+		accepted bool
+	}{
+		{"digit", "num1", keypad, "digit-1", true},
+		{"hash", "hash", keypad, "pound", true},
+		{"menu uses the left soft key", "menu", keypad, "soft-left", true},
+		{"end stays end on a keypad board", "end", keypad, "end", true},
+		{"end wakes a touch-only board through hold", "end", touch, "hold", true},
+		{"a board with both keeps them apart", "end", both, "end", true},
+		{"a board with its own menu keeps it", "menu", both, "menu", true},
+		{"no menu fallback without a soft key", "menu", touch, "menu", false},
+		{"unknown control", "not-a-board-control", both, "not-a-board-control", false},
+	} {
+		got, accepted := resolveSystemControl(test.control, test.board)
+		if got != test.want || accepted != test.accepted {
+			t.Errorf("%s: resolveSystemControl(%q) = %q, %t; want %q, %t",
+				test.name, test.control, got, accepted, test.want, test.accepted)
+		}
+	}
+}

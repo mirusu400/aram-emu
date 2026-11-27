@@ -545,17 +545,8 @@ func (backend *Backend) QueueInput(event frontend.InputEvent) error {
 	if machine == nil {
 		return systemBackendError(frontend.FailureBackendUnavailable, errors.New("no system machine is loaded"))
 	}
-	control := systemControl(event.Control)
 	backend.mu.RLock()
-	supported := backend.controls[control]
-	// Feature-phone menus are normally reached through the left soft button,
-	// while the shared frontend also exposes an abstract MENU control for
-	// application runtimes. Use the physical soft button only when a board has
-	// no distinct menu key of its own.
-	if !supported && control == "menu" && backend.controls["soft-left"] {
-		control = "soft-left"
-		supported = true
-	}
+	control, supported := resolveSystemControl(event.Control, backend.controls)
 	backend.mu.RUnlock()
 	if !supported {
 		return fmt.Errorf("firmware board profile does not expose control %q yet", event.Control)
@@ -633,6 +624,29 @@ func addSaturating(left, right uint64) uint64 {
 		return ^uint64(0)
 	}
 	return left + right
+}
+
+// resolveSystemControl maps a frontend control to the board control that
+// should receive it, and reports whether the board has one.
+func resolveSystemControl(frontendControl string, boardControls map[string]bool) (string, bool) {
+	control := systemControl(frontendControl)
+	if boardControls[control] {
+		return control, true
+	}
+	switch {
+	// Feature-phone menus are normally reached through the left soft button,
+	// while the shared frontend also exposes an abstract MENU control for
+	// application runtimes. Use the physical soft button only when a board has
+	// no distinct menu key of its own.
+	case control == "menu" && boardControls["soft-left"]:
+		return "soft-left", true
+	// A full-touch handset has no END key; its HOLD side key is what wakes and
+	// locks the panel. The frontend has no HOLD control, so END drives it on a
+	// board that offers HOLD and no END of its own.
+	case control == "end" && boardControls["hold"]:
+		return "hold", true
+	}
+	return control, false
 }
 
 func systemControl(control string) string {
