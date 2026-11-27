@@ -726,6 +726,11 @@ func resolveSystemControl(frontendControl string, boardControls map[string]bool)
 	// board that offers HOLD and no END of its own.
 	case control == "end" && boardControls["hold"]:
 		return "hold", true
+	// A touch handset has no menu key or soft button that MENU could mean,
+	// so MENU drives HOLD as well. On a handset with a real END key this is
+	// the only control left for HOLD, which wakes and unlocks the panel.
+	case control == "menu" && boardControls["hold"]:
+		return "hold", true
 	}
 	return control, false
 }

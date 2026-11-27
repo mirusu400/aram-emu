@@ -441,6 +441,8 @@ func TestResolveSystemControlFallsBackOnlyWhenTheBoardLacksTheKey(t *testing.T) 
 	keypad := map[string]bool{"soft-left": true, "end": true, "digit-1": true, "pound": true}
 	touch := map[string]bool{"hold": true}
 	both := map[string]bool{"hold": true, "end": true, "menu": true, "soft-left": true}
+	touchWithEnd := map[string]bool{"hold": true, "end": true, "back": true}
+	touchWithSoftKey := map[string]bool{"hold": true, "end": true, "soft-left": true}
 	for _, test := range []struct {
 		name     string
 		control  string
@@ -455,7 +457,10 @@ func TestResolveSystemControlFallsBackOnlyWhenTheBoardLacksTheKey(t *testing.T) 
 		{"end wakes a touch-only board through hold", "end", touch, "hold", true},
 		{"a board with both keeps them apart", "end", both, "end", true},
 		{"a board with its own menu keeps it", "menu", both, "menu", true},
-		{"no menu fallback without a soft key", "menu", touch, "menu", false},
+		{"menu drives hold on a touch-only board", "menu", touch, "hold", true},
+		{"end is the real key on a touch board that has one", "end", touchWithEnd, "end", true},
+		{"menu drives hold once end is a real key", "menu", touchWithEnd, "hold", true},
+		{"a soft key still takes menu before hold", "menu", touchWithSoftKey, "soft-left", true},
 		{"unknown control", "not-a-board-control", both, "not-a-board-control", false},
 	} {
 		got, accepted := resolveSystemControl(test.control, test.board)
