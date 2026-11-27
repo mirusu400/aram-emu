@@ -43,6 +43,7 @@ type systemMachine interface {
 	Run(context.Context, uint64) cpu.Result
 	Stop() error
 	SetKey(string, bool) error
+	SetTouch(x, y int, pressed bool) error
 	Framebuffer() image.Image
 	FrameSHA256() string
 	PowerCycle() error
@@ -95,6 +96,18 @@ type Backend struct {
 	frameSequence       uint64
 	inputSources        map[string]string
 	inputHolds          map[string]inputHold
+	touch               bool
+	pointer             pointerHold
+}
+
+// pointerHold tracks the one touch contact a resistive panel reports. Like a
+// key, a tap is kept down for the minimum guest duration so a fast host click
+// cannot fall between two panel scans.
+type pointerHold struct {
+	x, y           int
+	pressed        bool
+	releaseAfter   uint64
+	releasePending bool
 }
 
 type inputHold struct {
@@ -220,6 +233,9 @@ func (backend *Backend) OpenWithProgress(
 	for _, control := range machine.Controls() {
 		controls[control] = true
 	}
+	// Releasing an idle panel changes nothing, so it doubles as the question
+	// "does this board have a touch panel at all".
+	touch := !errors.Is(machine.SetTouch(0, 0, false), systemmachine.ErrUnsupportedControl)
 
 	backend.mu.Lock()
 	oldMachine := backend.machine
@@ -233,6 +249,7 @@ func (backend *Backend) OpenWithProgress(
 	backend.mediaRestoreFailed = mediaRestoreFailed
 	backend.mediaRestorePending = mediaRestorePending
 	backend.controls = controls
+	backend.touch = touch
 	backend.frameHash = ""
 	backend.frameSequence = 0
 	backend.resetInputState()
@@ -602,6 +619,12 @@ func (backend *Backend) QueueInput(event frontend.InputEvent) error {
 
 func (backend *Backend) flushInputReleases(machine systemMachine) error {
 	position := machine.Position().Instructions
+	if backend.pointer.releasePending && position >= backend.pointer.releaseAfter {
+		if err := machine.SetTouch(backend.pointer.x, backend.pointer.y, false); err != nil {
+			return systemBackendError(frontend.FailureUnknown, err)
+		}
+		backend.pointer = pointerHold{}
+	}
 	for control, hold := range backend.inputHolds {
 		if hold.sources != 0 || !hold.releasePending || position < hold.releaseAfter {
 			continue
@@ -617,7 +640,61 @@ func (backend *Backend) flushInputReleases(machine systemMachine) error {
 func (backend *Backend) resetInputState() {
 	clear(backend.inputSources)
 	clear(backend.inputHolds)
+	backend.pointer = pointerHold{}
 }
+
+// SupportsPointer reports whether the loaded board has a touch panel.
+func (backend *Backend) SupportsPointer() bool {
+	backend.mu.RLock()
+	defer backend.mu.RUnlock()
+	return backend.machine != nil && backend.touch
+}
+
+// QueuePointer applies one touch contact in panel coordinates. A press also
+// moves an existing contact; a release shorter than the minimum guest input
+// duration is completed by a later frame.
+func (backend *Backend) QueuePointer(event frontend.PointerInputEvent) error {
+	backend.operationMu.Lock()
+	defer backend.operationMu.Unlock()
+
+	machine := backend.currentMachine()
+	if machine == nil {
+		return systemBackendError(frontend.FailureBackendUnavailable, errors.New("no system machine is loaded"))
+	}
+	if !backend.SupportsPointer() {
+		return errors.New("firmware board profile has no touch panel")
+	}
+	if event.Pressed {
+		if err := machine.SetTouch(event.X, event.Y, true); err != nil {
+			return systemBackendError(frontend.FailureUnknown, err)
+		}
+		if !backend.pointer.pressed {
+			backend.pointer.releaseAfter = addSaturating(
+				machine.Position().Instructions,
+				backend.options.MinimumInputInstructions,
+			)
+		}
+		backend.pointer.x, backend.pointer.y = event.X, event.Y
+		backend.pointer.pressed = true
+		backend.pointer.releasePending = false
+		return nil
+	}
+	if !backend.pointer.pressed {
+		return nil
+	}
+	backend.pointer.pressed = false
+	if machine.Position().Instructions < backend.pointer.releaseAfter {
+		backend.pointer.releasePending = true
+		return nil
+	}
+	if err := machine.SetTouch(backend.pointer.x, backend.pointer.y, false); err != nil {
+		return systemBackendError(frontend.FailureUnknown, err)
+	}
+	backend.pointer = pointerHold{}
+	return nil
+}
+
+var _ frontend.PointerBackend = (*Backend)(nil)
 
 func addSaturating(left, right uint64) uint64 {
 	if ^uint64(0)-left < right {

@@ -3,10 +3,12 @@ package systemintegration
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/mirusu400/aram-core/application"
@@ -16,12 +18,19 @@ import (
 	"github.com/mirusu400/aram-frontend/frontend"
 )
 
+type fakeTouch struct {
+	x, y    int
+	pressed bool
+}
+
 type fakeSystemMachine struct {
 	position    systemmachine.Position
 	frame       *image.RGBA
 	frameHash   string
 	lastControl string
 	lastPressed bool
+	noTouch     bool
+	touches     []fakeTouch
 	media       systemmachine.MediaState
 	closed      bool
 }
@@ -69,6 +78,16 @@ func (machine *fakeSystemMachine) Stop() error { return nil }
 func (machine *fakeSystemMachine) SetKey(control string, pressed bool) error {
 	machine.lastControl = control
 	machine.lastPressed = pressed
+	return nil
+}
+func (machine *fakeSystemMachine) SetTouch(x, y int, pressed bool) error {
+	if machine.noTouch {
+		return systemmachine.ErrUnsupportedControl
+	}
+	if x < 0 || y < 0 || x >= 240 || y >= 320 {
+		return errors.New("touch outside the panel")
+	}
+	machine.touches = append(machine.touches, fakeTouch{x, y, pressed})
 	return nil
 }
 func (machine *fakeSystemMachine) Framebuffer() image.Image { return machine.frame }
@@ -443,5 +462,104 @@ func TestResolveSystemControlFallsBackOnlyWhenTheBoardLacksTheKey(t *testing.T) 
 			t.Errorf("%s: resolveSystemControl(%q) = %q, %t; want %q, %t",
 				test.name, test.control, got, accepted, test.want, test.accepted)
 		}
+	}
+}
+
+func openFakeSystemBackend(t *testing.T, machine *fakeSystemMachine) *Backend {
+	t.Helper()
+	directory := t.TempDir()
+	for name, data := range map[string]string{
+		"phone.wbt": "boot", "phone.wbin": "code", "phone.dat": "data", "phone.fnt": "font",
+	} {
+		if err := os.WriteFile(filepath.Join(directory, name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	backend := NewBackend(Options{
+		InstructionsPerFrame:     25,
+		MinimumInputInstructions: 50,
+		MediaRoot:                t.TempDir(),
+		DisableMediaPersistence:  true,
+		newMachine: func(firmwareset.Set, systemmachine.Options) (systemMachine, error) {
+			return machine, nil
+		},
+	})
+	t.Cleanup(func() { _ = backend.Close() })
+	if _, err := backend.Open(context.Background(), frontend.OpenRequest{Path: directory}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Execute(context.Background(), frontend.CommandStart); err != nil {
+		t.Fatal(err)
+	}
+	return backend
+}
+
+func TestBackendForwardsPointerInputToTheTouchPanel(t *testing.T) {
+	machine := newFakeSystemMachine()
+	backend := openFakeSystemBackend(t, machine)
+	if !backend.SupportsPointer() {
+		t.Fatal("board with a touch panel does not report pointer support")
+	}
+	machine.touches = nil
+
+	// A tap and its drag reach the panel at once; a release that arrives
+	// before the minimum guest duration waits for a later frame.
+	for _, event := range []frontend.PointerInputEvent{
+		{X: 10, Y: 20, Pressed: true}, {X: 12, Y: 24, Pressed: true}, {X: 12, Y: 24, Pressed: false},
+	} {
+		if err := backend.QueuePointer(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := []fakeTouch{{10, 20, true}, {12, 24, true}}; !reflect.DeepEqual(machine.touches, want) {
+		t.Fatalf("touches before the minimum duration = %+v, want %+v", machine.touches, want)
+	}
+	if err := backend.RunFrame(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(machine.touches) != 2 {
+		t.Fatalf("release applied after %d instructions: %+v", machine.position.Instructions, machine.touches)
+	}
+	for frame := 0; frame < 2; frame++ {
+		if err := backend.RunFrame(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := (fakeTouch{12, 24, false}); len(machine.touches) != 3 || machine.touches[2] != want {
+		t.Fatalf("deferred release = %+v, want last %+v", machine.touches, want)
+	}
+
+	// A held contact releases immediately once it has lasted long enough, and
+	// a stray release is ignored.
+	if err := backend.QueuePointer(frontend.PointerInputEvent{X: 5, Y: 6, Pressed: true}); err != nil {
+		t.Fatal(err)
+	}
+	for frame := 0; frame < 3; frame++ {
+		if err := backend.RunFrame(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for repeat := 0; repeat < 2; repeat++ {
+		if err := backend.QueuePointer(frontend.PointerInputEvent{X: 5, Y: 6, Pressed: false}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := (fakeTouch{5, 6, false}); len(machine.touches) != 5 || machine.touches[4] != want {
+		t.Fatalf("held contact release = %+v, want last %+v", machine.touches, want)
+	}
+	if err := backend.QueuePointer(frontend.PointerInputEvent{X: 999, Y: 6, Pressed: true}); err == nil {
+		t.Fatal("contact outside the panel was accepted")
+	}
+}
+
+func TestBackendWithoutTouchPanelRejectsPointerInput(t *testing.T) {
+	machine := newFakeSystemMachine()
+	machine.noTouch = true
+	backend := openFakeSystemBackend(t, machine)
+	if backend.SupportsPointer() {
+		t.Fatal("board without a touch panel reports pointer support")
+	}
+	if err := backend.QueuePointer(frontend.PointerInputEvent{X: 1, Y: 1, Pressed: true}); err == nil {
+		t.Fatal("pointer input accepted without a touch panel")
 	}
 }
