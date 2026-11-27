@@ -30,8 +30,12 @@ const (
 	DefaultInstructionsPerFrame     = uint64(1_000_000)
 	DefaultMinimumInputInstructions = uint64(7_000_000)
 	mediaSchemaVersion              = uint32(1)
-	maxMediaBuildIDBytes            = uint32(4 * 1024)
-	maxMediaSectionBytes            = uint64(2 << 30)
+	// Schema 2 adds the secondary NAND main area and the OneNAND spare area.
+	// It is written only for boards that have either, so media of every
+	// other board stays byte-identical to schema 1.
+	mediaExtendedSchemaVersion = uint32(2)
+	maxMediaBuildIDBytes       = uint32(4 * 1024)
+	maxMediaSectionBytes       = uint64(2 << 30)
 )
 
 var mediaMagic = []byte("ARAMSYSMEDIA\x00")
@@ -936,9 +940,12 @@ func writeMediaFile(path string, media systemmachine.MediaState) error {
 	if media.FirmwareBuildID == "" || len(media.FirmwareBuildID) > int(maxMediaBuildIDBytes) {
 		return errors.New("persistent media has an invalid firmware build ID")
 	}
-	if uint64(len(media.Flash)) > maxMediaSectionBytes || uint64(len(media.NAND)) > maxMediaSectionBytes {
+	if uint64(len(media.Flash)) > maxMediaSectionBytes || uint64(len(media.NAND)) > maxMediaSectionBytes ||
+		uint64(len(media.SecondaryFlash)) > maxMediaSectionBytes ||
+		uint64(len(media.OneNANDSpare)) > maxMediaSectionBytes {
 		return errors.New("persistent media exceeds the host integration limit")
 	}
+	extended := len(media.SecondaryFlash) != 0 || len(media.OneNANDSpare) != 0
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -957,17 +964,24 @@ func writeMediaFile(path string, media systemmachine.MediaState) error {
 	}
 	hash := sha256.New()
 	output := io.MultiWriter(temporary, hash)
-	for _, value := range []any{
+	header := []any{
 		mediaSchemaVersion,
 		uint32(len(media.FirmwareBuildID)),
 		uint64(len(media.Flash)),
 		uint64(len(media.NAND)),
-	} {
+	}
+	sections := [][]byte{[]byte(media.FirmwareBuildID), media.Flash, media.NAND}
+	if extended {
+		header[0] = mediaExtendedSchemaVersion
+		header = append(header, uint64(len(media.SecondaryFlash)), uint64(len(media.OneNANDSpare)))
+		sections = append(sections, media.SecondaryFlash, media.OneNANDSpare)
+	}
+	for _, value := range header {
 		if err := binary.Write(output, binary.LittleEndian, value); err != nil {
 			return fail(err)
 		}
 	}
-	for _, bytes := range [][]byte{[]byte(media.FirmwareBuildID), media.Flash, media.NAND} {
+	for _, bytes := range sections {
 		if _, err := output.Write(bytes); err != nil {
 			return fail(err)
 		}
@@ -1006,18 +1020,38 @@ func readMediaFile(path string) (systemmachine.MediaState, error) {
 			return systemmachine.MediaState{}, err
 		}
 	}
-	if version != mediaSchemaVersion {
+	if version != mediaSchemaVersion && version != mediaExtendedSchemaVersion {
 		return systemmachine.MediaState{}, fmt.Errorf("persistent media schema %d is unsupported", version)
+	}
+	var secondaryLength, spareLength uint64
+	if version == mediaExtendedSchemaVersion {
+		for _, value := range []any{&secondaryLength, &spareLength} {
+			if err := binary.Read(input, binary.LittleEndian, value); err != nil {
+				return systemmachine.MediaState{}, err
+			}
+		}
+		// Schema 2 exists only to carry at least one of the two sections.
+		if secondaryLength == 0 && spareLength == 0 {
+			return systemmachine.MediaState{}, errors.New("persistent media section lengths are invalid")
+		}
 	}
 	if buildLength == 0 || buildLength > maxMediaBuildIDBytes ||
 		flashLength == 0 || flashLength > maxMediaSectionBytes ||
-		nandLength == 0 || nandLength > maxMediaSectionBytes {
+		nandLength == 0 || nandLength > maxMediaSectionBytes ||
+		secondaryLength > maxMediaSectionBytes || spareLength > maxMediaSectionBytes {
 		return systemmachine.MediaState{}, errors.New("persistent media section lengths are invalid")
 	}
 	build := make([]byte, int(buildLength))
 	flash := make([]byte, int(flashLength))
 	nand := make([]byte, int(nandLength))
-	for _, bytes := range [][]byte{build, flash, nand} {
+	var secondary, spare []byte
+	if secondaryLength != 0 {
+		secondary = make([]byte, int(secondaryLength))
+	}
+	if spareLength != 0 {
+		spare = make([]byte, int(spareLength))
+	}
+	for _, bytes := range [][]byte{build, flash, nand, secondary, spare} {
 		if _, err := io.ReadFull(input, bytes); err != nil {
 			return systemmachine.MediaState{}, err
 		}
@@ -1039,6 +1073,8 @@ func readMediaFile(path string) (systemmachine.MediaState, error) {
 		FirmwareBuildID: string(build),
 		Flash:           flash,
 		NAND:            nand,
+		SecondaryFlash:  secondary,
+		OneNANDSpare:    spare,
 	}, nil
 }
 

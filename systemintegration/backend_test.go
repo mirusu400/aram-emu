@@ -3,6 +3,7 @@ package systemintegration
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"image"
 	"image/color"
@@ -561,5 +562,50 @@ func TestBackendWithoutTouchPanelRejectsPointerInput(t *testing.T) {
 	}
 	if err := backend.QueuePointer(frontend.PointerInputEvent{X: 1, Y: 1, Pressed: true}); err == nil {
 		t.Fatal("pointer input accepted without a touch panel")
+	}
+}
+
+func TestMediaFileCarriesSecondaryFlashAndOneNANDSpare(t *testing.T) {
+	directory := t.TempDir()
+	base := systemmachine.MediaState{
+		FirmwareBuildID: "samsung.sph-w4200.dc17",
+		Flash:           []byte("flash-state"),
+		NAND:            []byte("nand-state"),
+	}
+	// A board without the extra areas keeps writing schema 1, byte for byte.
+	plainPath := filepath.Join(directory, "plain.arammedia")
+	if err := writeMediaFile(plainPath, base); err != nil {
+		t.Fatal(err)
+	}
+	plain, err := os.ReadFile(plainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version := binary.LittleEndian.Uint32(plain[len(mediaMagic):]); version != mediaSchemaVersion {
+		t.Fatalf("media without extra areas uses schema %d", version)
+	}
+	for name, media := range map[string]systemmachine.MediaState{
+		"secondary": {FirmwareBuildID: base.FirmwareBuildID, Flash: base.Flash, NAND: base.NAND,
+			SecondaryFlash: []byte("second-chip")},
+		"spare": {FirmwareBuildID: base.FirmwareBuildID, Flash: base.Flash, NAND: base.NAND,
+			OneNANDSpare: []byte("spare-area")},
+		"both": {FirmwareBuildID: base.FirmwareBuildID, Flash: base.Flash, NAND: base.NAND,
+			SecondaryFlash: []byte("second-chip"), OneNANDSpare: []byte("spare-area")},
+	} {
+		path := filepath.Join(directory, name+".arammedia")
+		if err := writeMediaFile(path, media); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		got, err := readMediaFile(path)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !reflect.DeepEqual(got, media) {
+			t.Fatalf("%s: media round trip = %+v, want %+v", name, got, media)
+		}
+	}
+	got, err := readMediaFile(plainPath)
+	if err != nil || got.SecondaryFlash != nil || got.OneNANDSpare != nil {
+		t.Fatalf("schema 1 media = %+v, error %v", got, err)
 	}
 }
